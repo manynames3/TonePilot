@@ -1,8 +1,8 @@
-# TonePilot interface screenshots
+# TonePilot v0.3 — Real macOS app screenshots
 
-These are actual window captures rendered by the TonePilot macOS prototype on October 21, 2026.
+Captured from the actual SwiftUI application on October 21, 2026. These are **not** AI-generated concept renders.
 
-- tonepilot-edit.png — settings workspace, no Lightroom photo selection synced.
-- tonepilot-getting-started.png — in-app onboarding instructions.
+- **tonepilot-edit.png:** Editorial Studio main workspace, showing an unverified Lightroom selection, illustrative vector look cards and native correction controls.
+- **tonepilot-getting-started.png:** Real in-app help sheet explaining the pilot workflow and plug-in connection.
 
-No sample photographs, names, Lightroom previews, or client data are included. The images illustrate the current experimental interface and do not demonstrate completed AI photo edits. This is not the proposed future premium UI.
+No personal photographs, catalog previews, or Lightroom editing results are displayed. The selection was not live-verified in this capture, and TonePilot's cloud-backed AI editing path has not been validated on actual photographs.

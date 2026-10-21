@@ -1,12 +1,20 @@
-# TonePilot macOS source
+# TonePilot macOS — SwiftUI developer source
 
-This directory contains the SwiftUI app and the read-only Lightroom MCP selection scanner.
+The native **Editorial Studio** interface lives in `Source/TonePilotApp.swift`. The supporting Lightroom selection scanner and Codex AI editing controller are implemented in `scan-selection.mjs` and `Source/WorkspaceModel.swift`.
 
-**Start with the [main project README](../README.md)** for product overview, architecture, developer setup, AI/cloud disclosure, and known limitations.
+Build and launch:
 
-- `Source/TonePilotApp.swift`: compact native user interface and menu-bar helper.
-- `Source/WorkspaceModel.swift`: Lightroom connection checks, selection scan, editing orchestrator, and session reports.
-- `scan-selection.mjs`: direct, read-only Lightroom MCP selection request (does not call Codex or edit photographs).
-- `build.sh`: builds the local `~/Applications/TonePilot.app` bundle.
+```bash
+./TonePilot/build.sh
+open ~/Applications/TonePilot.app
+```
 
-**Prototype warning:** the UI and Codex launch path are implemented, but end-to-end Develop adjustments have not been validated. Always use test photographs and back up the Lightroom catalog.
+Run the read-only scanner tests:
+
+```bash
+node --test TonePilot/tests/selection-scanner.test.mjs
+```
+
+For requirements, plugin setup, safety limitations, and development status see the [project README](../README.md).
+
+**Experimental:** Lightroom selection syncing is implemented, but the current Lightroom MCP server has not yet been connected successfully. Do not run real edits without catalog backups and a successful pilot.

@@ -9,16 +9,16 @@ Your clients want beautiful skin tones, consistent color, and photographs that f
 **TonePilot is being built to take the repetitive first pass off your plate. You keep the creative decisions, and you keep working in Lightroom.**
 
 > [!IMPORTANT]
-> **Early prototype · v0.1 · Not production-ready.** The native Mac app builds and launches, and the Codex/Lightroom orchestration is implemented. **A complete AI analysis → Lightroom Develop edit → verification cycle has not been validated yet.** Please use test photos and a backed-up catalog only. Time savings and edit accuracy have **not** been benchmarked.
+> **Early prototype · v0.3 · Not production-ready.** The native Mac app builds and launches, and the Codex/Lightroom orchestration is implemented. **A complete AI analysis → Lightroom Develop edit → verification cycle has not been validated yet.** Please use test photos and a backed-up catalog only. Time savings and edit accuracy have **not** been benchmarked.
 
 ## A closer look
 
-These are **real screenshots of the current macOS prototype**, not AI-generated mockups. The selection is intentionally empty because the live Lightroom connection has not been verified. The UI is still being refined.
+These are **real screenshots of TonePilot's v0.3 Editorial Studio macOS interface**, not AI-generated mockups. The layout combines a warm, light control surface with a charcoal editorial side panel, larger typography, custom editing looks, and restrained controls. The three landscape cards are decorative vector illustrations—not photographs or processed-image previews. The connection is intentionally shown as unverified because live Lightroom editing has not yet been validated.
 
 <table>
 <tr>
-<td width="50%" valign="top"><img src="docs/screenshots/tonepilot-edit.png" alt="TonePilot's compact first-pass settings panel showing Lightroom prerequisites, selection sync, edit looks and targeted corrections." width="530"></td>
-<td width="50%" valign="top"><img src="docs/screenshots/tonepilot-getting-started.png" alt="TonePilot's native Getting Started screen, with instructions for selecting photos, connecting Lightroom, and running an AI first-pass pilot." width="530"></td>
+<td width="50%" valign="top"><img src="docs/screenshots/tonepilot-edit.png" alt="TonePilot Editorial Studio's light-and-charcoal macOS app with Lightroom selection controls, illustrated editing looks, correction strength and first-pass adjustment toggles." width="530"></td>
+<td width="50%" valign="top"><img src="docs/screenshots/tonepilot-getting-started.png" alt="TonePilot Editorial Studio's Getting Started sheet with four steps and bridge troubleshooting." width="530"></td>
 </tr>
 <tr><td align="center"><sub><b>Edit</b> · Choose what AI should correct</sub></td><td align="center"><sub><b>Getting started</b> · Stay in Lightroom</sub></td></tr>
 </table>
@@ -54,7 +54,7 @@ A photograph can look good on its own and still feel noticeably different beside
 
 | Capability | Honest status |
 | --- | --- |
-| Native SwiftUI companion window and menu-bar entry | **Built and launched** on Apple Silicon |
+| Native SwiftUI Editorial Studio and menu-bar entry | **Built and launched** on Apple Silicon |
 | Correction preferences for white balance, exposure, and tone | **Implemented** |
 | Read-only Lightroom selection scanner | **Implemented**, live bridge response not verified |
 | Codex CLI + Lightroom MCP editing orchestration | **Wired**, end-to-end edits not yet validated |
@@ -140,7 +140,7 @@ There will still be resource costs when Codex is active and Lightroom generates 
 1. **Prove the first pass works:** reliably connect to Lightroom, capture originals, make and verify a small set of actual adjustments.
 2. **Prove it helps:** compare corrections against photographer-approved reference edits, especially difficult skin-tone tint and exposure.
 3. **Make it safer:** enforce tool permissions, improve error recovery and rollback, and validate before any larger batches.
-4. **Make it delightful:** ship a more premium, accessible macOS companion interface with stronger typography, clear progress, and review-first workflows.
+4. **Refine Editorial Studio:** improve accessible interactions, progress states, and live Lightroom diagnostics. The v0.3 visual redesign is implemented; the editing engine is still experimental.
 5. **Make it distributable:** portable paths, onboarding, installer, signing, and notarization.
 
 ## About the project

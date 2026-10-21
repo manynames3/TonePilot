@@ -22,6 +22,7 @@ final class WorkspaceModel: ObservableObject {
     @Published var codexReady = false
     @Published var photos: [SelectedPhoto] = []
     @Published var screen: Screen = .workspace
+    @Published var panel: Panel?
     @Published var busy = false
     @Published var phase = "Ready to start"
     @Published var events: [String] = []
