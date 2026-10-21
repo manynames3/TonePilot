@@ -186,13 +186,23 @@ final class WorkspaceModel: ObservableObject {
             self.reportURL = finalFile
             let fromDisk = (try? String(contentsOf: finalFile, encoding: .utf8)) ?? ""
             self.report = !fromDisk.isEmpty ? fromDisk : text
-            if code == 0 {
-                self.phase = "Ready for your review"
-                self.note("First pass complete — review results in Lightroom")
+            let normalized = self.report.lowercased()
+            let documentedBlocker =
+                normalized.contains("stopped before editing") ||
+                normalized.contains("mcp tool call requires approval") ||
+                normalized.contains("first-pass edit remains incomplete") ||
+                normalized.contains("no develop settings or previews were retrieved")
+            if documentedBlocker {
+                self.phase = "First pass blocked — no edits confirmed"
+                self.note("AI reported a blocked run. Open Reports for the explanation.")
+                self.alertMessage = "The AI could not finish editing. Open Reports for details and check Lightroom Develop History before retrying."
+            } else if code == 0 && !self.report.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.phase = "AI session finished — review Lightroom"
+                self.note("AI session finished. Verify the actual photo adjustments in Lightroom.")
             } else {
-                self.phase = "Editing stopped — review Lightroom"
+                self.phase = "AI session failed — inspect Lightroom"
                 self.note("The session ended early; some edits may have been applied.")
-                self.alertMessage = "The session did not complete. Review Develop history before retrying."
+                self.alertMessage = "The session did not complete. Check Lightroom Develop History before retrying."
             }
         }
     }
@@ -262,45 +272,59 @@ final class WorkspaceModel: ObservableObject {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: executable)
             p.currentDirectoryURL = root
-            p.arguments = ["exec", "--json", "--skip-git-repo-check", "-C", root.path,
-                "--sandbox", editing ? "workspace-write" : "read-only",
-                "--output-last-message", finalFile.path, prompt]
+            // In a background macOS app there is no terminal to approve MCP actions.
+            // Let Codex's automatic reviewer evaluate requests; never bypass its sandbox.
+            p.arguments = [
+                "exec", "--json", "--approve-for-me", "--skip-git-repo-check",
+                "-C", root.path, "--sandbox", "workspace-write",
+                "--output-last-message", finalFile.path, prompt
+            ]
             var env = ProcessInfo.processInfo.environment
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             env["PATH"] = home + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
             p.environment = env
+            p.standardInput = FileHandle.nullDevice
             let pipe = Pipe()
-            p.standardOutput = pipe; p.standardError = pipe
+            p.standardOutput = pipe
+            p.standardError = pipe
+            let readerQueue = DispatchQueue(label: "app.tonepilot.codexoutput")
+            var pending = ""
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty else {
+                    handle.readabilityHandler = nil
+                    return
+                }
+                readerQueue.async {
+                    pending += String(decoding: data, as: UTF8.self)
+                    while let newline = pending.firstIndex(of: "\n") {
+                        let line = String(pending[..<newline])
+                        pending.removeSubrange(...newline)
+                        if let summary = Self.summarizeEvent(line) {
+                            DispatchQueue.main.async { self.note(summary) }
+                        }
+                    }
+                }
+            }
+            // IMPORTANT: process termination, not output-pipe EOF, finishes the UI session.
+            // MCP subprocesses may inherit stdout and keep the pipe open indefinitely.
+            p.terminationHandler = { process in
+                pipe.fileHandleForReading.readabilityHandler = nil
+                let result = (try? String(contentsOf: finalFile, encoding: .utf8)) ?? ""
+                DispatchQueue.main.async {
+                    self.runningProcess = nil
+                    completion(result, process.terminationStatus)
+                    self.refresh()
+                }
+            }
             DispatchQueue.main.async { self.runningProcess = p }
             do { try p.run() }
             catch {
+                pipe.fileHandleForReading.readabilityHandler = nil
                 DispatchQueue.main.async {
                     self.runningProcess = nil
                     self.fail("Could not start Codex: \(error.localizedDescription)")
                 }
-                return
-            }
-            var partial = ""
-            while true {
-                let data = pipe.fileHandleForReading.availableData
-                if data.isEmpty { break }
-                guard let chunk = String(data: data, encoding: .utf8) else { continue }
-                partial += chunk
-                while let newline = partial.range(of: "\n") {
-                    let line = String(partial[..<newline.lowerBound])
-                    partial.removeSubrange(..<newline.upperBound)
-                    if let summary = Self.summarizeEvent(line) {
-                        DispatchQueue.main.async { self.note(summary) }
-                    }
-                }
-            }
-            p.waitUntilExit()
-            let code = p.terminationStatus
-            let text = (try? String(contentsOf: finalFile, encoding: .utf8)) ?? ""
-            DispatchQueue.main.async {
-                self.runningProcess = nil
-                completion(text, code)
-                self.refresh()
             }
         }
     }

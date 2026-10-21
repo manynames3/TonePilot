@@ -17,4 +17,11 @@ node --test TonePilot/tests/selection-scanner.test.mjs
 
 For requirements, plugin setup, safety limitations, and development status see the [project README](../README.md).
 
-**Experimental:** Lightroom selection syncing is implemented, but the current Lightroom MCP server has not yet been connected successfully. Do not run real edits without catalog backups and a successful pilot.
+**Experimental:** Read-only selection syncing was verified with five photos on October 21, 2026; Codex MCP access was also verified after automatic approval review. Actual Develop edits have **not** yet been validated. Do not run real edits without catalog backups and a successful pilot.
+
+## v0.3.1 reliability patch
+
+- The native app launches Codex with automatic approval review and the workspace-write sandbox.
+- Codex execution now completes on process termination, even if child MCP servers keep stdout open.
+- Blocked and incomplete sessions no longer appear as successful editing sessions.
+- AI photo edits still require validation on test images and a backed-up catalog.

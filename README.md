@@ -9,11 +9,11 @@ Your clients want beautiful skin tones, consistent color, and photographs that f
 **TonePilot is being built to take the repetitive first pass off your plate. You keep the creative decisions, and you keep working in Lightroom.**
 
 > [!IMPORTANT]
-> **Early prototype · v0.3 · Not production-ready.** The native Mac app builds and launches, and the Codex/Lightroom orchestration is implemented. **A complete AI analysis → Lightroom Develop edit → verification cycle has not been validated yet.** Please use test photos and a backed-up catalog only. Time savings and edit accuracy have **not** been benchmarked.
+> **Early prototype · v0.3.1 · Not production-ready.** The native Mac app builds and launches, and the Codex/Lightroom orchestration is implemented. **A complete AI analysis → Lightroom Develop edit → verification cycle has not been validated yet.** Please use test photos and a backed-up catalog only. Time savings and edit accuracy have **not** been benchmarked.
 
 ## A closer look
 
-These are **real screenshots of TonePilot's v0.3 Editorial Studio macOS interface**, not AI-generated mockups. The layout combines a warm, light control surface with a charcoal editorial side panel, larger typography, custom editing looks, and restrained controls. The three landscape cards are decorative vector illustrations—not photographs or processed-image previews. The connection is intentionally shown as unverified because live Lightroom editing has not yet been validated.
+These are **real screenshots of TonePilot's v0.3 Editorial Studio macOS interface**, not AI-generated mockups. The layout combines a warm, light control surface with a charcoal editorial side panel, larger typography, custom editing looks, and restrained controls. The three landscape cards are decorative vector illustrations—not photographs or processed-image previews. The screenshot was captured before selection verification. A later read-only connection test retrieved five selected HEIC photos; live AI Develop edits remain untested.
 
 <table>
 <tr>
@@ -56,8 +56,8 @@ A photograph can look good on its own and still feel noticeably different beside
 | --- | --- |
 | Native SwiftUI Editorial Studio and menu-bar entry | **Built and launched** on Apple Silicon |
 | Correction preferences for white balance, exposure, and tone | **Implemented** |
-| Read-only Lightroom selection scanner | **Implemented**, live bridge response not verified |
-| Codex CLI + Lightroom MCP editing orchestration | **Wired**, end-to-end edits not yet validated |
+| Read-only Lightroom selection scanner | **Implemented and live-tested** on five selected HEIC photos (Oct 21, 2026) |
+| Codex CLI + Lightroom MCP editing orchestration | **Wired**; Codex read access tested with automatic approval review; actual Develop writes unverified |
 | Limit selection to 20 photos for early testing | **Implemented in the app**, with agent instructions |
 | Original-setting baseline, preview-based review, edit report | **Requested by the editing agent**, not independently verified |
 | Accurate, consistent color across real photo sessions | **Unproven**; needs tests with RAW galleries |
@@ -65,7 +65,7 @@ A photograph can look good on its own and still feel noticeably different beside
 | One-click edits on hundreds of photos | **Not supported yet** |
 | Signed and notarized macOS distribution | **Not available** |
 
-The last recorded connection test reported **“Lightroom plugin not connected.”** Getting a real pilot working reliably is the next priority.
+A live selection scan returned five photos on October 21, 2026, and a read-only Codex MCP call successfully retrieved the same five after enabling Codex's automatic approval review. An earlier first-pass attempt made **zero edits** because the Codex approval policy blocked the initial Lightroom tool call. The UI completion handling and approval workflow were updated in v0.3.1; end-to-end editing still requires verification.
 
 ## Under the hood
 
@@ -122,10 +122,29 @@ There will still be resource costs when Codex is active and Lightroom generates 
    codex mcp add lightroom -- npx -y @mskalski/lightroom-mcp
    ~~~
 
-4. **Back up the Lightroom catalog.** Select no more than 20 disposable/test images in Lightroom, return to TonePilot, and click **Sync selection**.
-5. If the connection is confirmed, select correction types and use **Run AI First Pass**. Inspect every change and Lightroom's Develop History before doing anything else.
+4. **Back up the Lightroom catalog.** Select no more than 20 disposable/test images in Lightroom, return to TonePilot, and click **Read selection**.
+5. If the connection is confirmed, select correction types and use **Create AI First Pass**. Inspect every change and Lightroom's Develop History before doing anything else.
 
 **Build note:** the development app is locally **ad-hoc signed, not notarized**. macOS may require user approval on another machine. A portable installer and first-run onboarding are planned.
+
+## Latest v0.3.1: stalled-session fix
+
+A pilot on October 21 exposed a reliability issue. Five photos were selected, but Codex had an MCP approval policy of 'never'. The first get_selected_photos request was rejected because it required approval. **No edits were applied.** The report was saved, yet the UI could continue displaying an editing state after Codex had already exited.
+
+The v0.3.1 changes:
+
+- **Codex MCP permission handling:** use Codex CLI's '--approve-for-me' automatic reviewer instead of rejecting all MCP requests. Codex still runs with its 'workspace-write' sandbox; TonePilot does **not** use a no-sandbox bypass. Automatic approval review is not manual approval per tool call.
+- **Reliable completion:** finish on Codex process termination rather than waiting for inherited child-process stdout pipes to close.
+- **Truthful outcomes:** reports describing blocked tool access or incomplete edits are surfaced as failures, even when the agent exits with status 0.
+- **Read-only validation:** a controlled Codex MCP call retrieved the five selected photos without writing Lightroom adjustments.
+
+**Still untested:** a complete, successful AI first-pass edit on a real photograph. Verified access is not proof of editing quality.
+
+### If a session appears stuck
+
+Open **Reports** in TonePilot and inspect the latest session. If the report mentions 'MCP tool call requires approval, but approval policy is never', Lightroom editing was blocked. In the October 21 incident, TonePilot edited **zero** photos.
+
+Update to the current build, relaunch TonePilot, verify the selection again, and use test photographs with a current catalog backup. For any interrupted session, inspect Lightroom's Develop History before retrying: a partial run may have applied earlier adjustments even if the final report failed.
 
 ## Your photos, your control
 
