@@ -11,7 +11,12 @@ struct SessionRecord: Identifiable {
     let url: URL
     let date: Date
     var id: String { url.path }
-    var title: String { url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "edit-", with: "Session ") }
+    var title: String {
+        if url.lastPathComponent == "report.md" {
+            return url.deletingLastPathComponent().lastPathComponent.replacingOccurrences(of: "session-", with: "Session ")
+        }
+        return url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "edit-", with: "Session ")
+    }
 }
 
 final class WorkspaceModel: ObservableObject {
@@ -31,11 +36,35 @@ final class WorkspaceModel: ObservableObject {
     @Published var sessions: [SessionRecord] = []
     @Published var alertMessage: String?
     @Published var scanComplete = false
+    @Published var pendingPlanURL: URL?
+    @Published var planSummary = ""
+    @Published var proposedCount = 0
+    @Published var restoreSessionURL: URL?
+    @Published var engineStage = ""
+    @Published var confirmApply = false
+    @Published var confirmRestore = false
 
     private var runningProcess: Process?
-    let root = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Documents/Lightroom-AI-FirstPass")
+    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("TonePilot")
     var runs: URL { root.appendingPathComponent("runs") }
+    private var engineURL: URL {
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("TonePilotEngine/engine.mjs"),
+           FileManager.default.fileExists(atPath: bundled.path) { return bundled }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/Lightroom-AI-FirstPass/TonePilot/Engine/engine.mjs")
+    }
+    private var scannerURL: URL {
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("scan-selection.mjs"),
+           FileManager.default.fileExists(atPath: bundled.path) { return bundled }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/Lightroom-AI-FirstPass/TonePilot/scan-selection.mjs")
+    }
+    private var nodePath: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let paths = [home + "/.local/bin/node", "/opt/homebrew/bin/node", "/usr/local/bin/node"]
+        return paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) ?? paths[0]
+    }
     private var codexPath: String {
         let candidates = [
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/codex").path,
@@ -76,7 +105,11 @@ final class WorkspaceModel: ObservableObject {
     func refreshSessions() {
         let files = ((try? FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
             .filter { $0.lastPathComponent.hasPrefix("edit-") && $0.pathExtension == "md" }
-        sessions = files.map {
+        let sessionDirs = ((try? FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix("session-") }
+        let sessionReports = sessionDirs.map { $0.appendingPathComponent("report.md") }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        sessions = (files + sessionReports).map {
             SessionRecord(url: $0, date: (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
         }.sorted { $0.date > $1.date }
     }
@@ -97,6 +130,9 @@ final class WorkspaceModel: ObservableObject {
         begin("Reading selection")
         scanComplete = false
         photos = []
+        pendingPlanURL = nil
+        proposedCount = 0
+        planSummary = ""
         launchScanner { text, code in
             let jsonLine = text.split(separator: "\n").reversed()
                 .first(where: { $0.first == "{" && $0.last == "}" })
@@ -138,71 +174,154 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
+    // The first action only ANALYZES. No Lightroom Develop writes occur until
+    // the photographer separately confirms and applies a validated plan.
     func startFirstPass(style: String, strength: String, wb: Bool, exposure: Bool, tone: Bool) {
-        guard !busy, scanComplete, !photos.isEmpty, photos.count <= 20 else { return }
+        guard !busy, scanComplete, (1...20).contains(photos.count) else { return }
         guard wb || exposure || tone else { alertMessage = "Enable at least one correction."; return }
         let ids = photos.map(\.id)
-        guard Set(ids).count == ids.count else {
-            alertMessage = "The selected IDs are not unique. Scan again before editing."
-            return
-        }
-        begin("Editing selected photos")
-        let finalFile = runs.appendingPathComponent("edit-\(Self.stamp()).md")
-        let targets: [String] = [
-            wb ? "White balance and Tint (natural skin, accurate neutrality)" : "",
-            exposure ? "Subject exposure, respecting highlight detail" : "",
-            tone ? "Highlights, shadows, white point, black point (subtle realistic contrast)" : ""
-        ].filter { !$0.isEmpty }
-        let strengthDescription = strength == "Subtle" ? "VERY conservative changes, high confidence only." :
-            strength == "Balanced" ? "Conservative professional corrections." :
-            "Slightly stronger fixes when strongly justified, avoid stylization."
-        let styleDescription = style == "Soft & airy" ? "Bright airy portraits, natural contrast and real skin." :
-            style == "True to scene" ? "Keep genuine scene mood and intentional warmth/coolness." :
-            "Clean natural portrait photography, realistic skin and balanced contrast."
-        let prompt = """
-        Run the AI FIRST-PASS EDIT workflow in AGENTS.md.
-        STRICT BOUNDARY: The scan authorized exactly \(ids.count) Lightroom IDs: \(ids.joined(separator: ", ")).
-        First call get_selected_photos. Do not edit unless its entire selected ID set matches exactly the
-        authorized ID set and total count is exactly \(ids.count). If mismatch STOP with NO edits.
-        Before the FIRST edit, read Develop settings for every selected photo and save a baseline JSON
-        in the project's runs directory. If the baseline cannot be written, STOP without editing.
-        If the Lightroom tool supports snapshots, create a labeled pre-edit Develop snapshot per photo.
-        Do not edit other photos. Do not alter crop, camera profile, masks, metadata, or ratings.
-        Correction areas enabled ONLY: \(targets.joined(separator: "; ")).
-        Never change a correction area that was not enabled.
-        STYLE: \(styleDescription)
-        INTENSITY: \(strengthDescription)
-        Review actual previews and re-render edited images for before/after verification.
-        Look carefully at magenta/green skin tint, exposure consistency by scene, and intentional light.
-        Flag difficult mixed-light images for human review; skip if confidence is low.
-        Write a Markdown report to \(finalFile.path) and ALSO include the full report in your final answer.
-        Report sections: Overview (edited/skipped/flagged); Needs My Review (filenames & reasons);
-        Photo Adjustments (filename, original/new settings, rationale); Overall Consistency.
-        No export, publish, move, delete or upload operations.
-        """
-        launchCodex(prompt: prompt, finalFile: finalFile, editing: true) { text, code in
-            self.busy = false
-            self.refreshSessions()
-            self.reportURL = finalFile
-            let fromDisk = (try? String(contentsOf: finalFile, encoding: .utf8)) ?? ""
-            self.report = !fromDisk.isEmpty ? fromDisk : text
-            let normalized = self.report.lowercased()
-            let documentedBlocker =
-                normalized.contains("stopped before editing") ||
-                normalized.contains("mcp tool call requires approval") ||
-                normalized.contains("first-pass edit remains incomplete") ||
-                normalized.contains("no develop settings or previews were retrieved")
-            if documentedBlocker {
-                self.phase = "First pass blocked — no edits confirmed"
-                self.note("AI reported a blocked run. Open Reports for the explanation.")
-                self.alertMessage = "The AI could not finish editing. Open Reports for details and check Lightroom Develop History before retrying."
-            } else if code == 0 && !self.report.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                self.phase = "AI session finished — review Lightroom"
-                self.note("AI session finished. Verify the actual photo adjustments in Lightroom.")
-            } else {
-                self.phase = "AI session failed — inspect Lightroom"
-                self.note("The session ended early; some edits may have been applied.")
-                self.alertMessage = "The session did not complete. Check Lightroom Develop History before retrying."
+        guard Set(ids).count == ids.count else { alertMessage = "Duplicate selected IDs; read selection again."; return }
+        pendingPlanURL = nil
+        restoreSessionURL = nil
+        planSummary = ""
+        proposedCount = 0
+        runEngine(stage: "analyze", arguments: [
+            "--ids", String(data: (try! JSONSerialization.data(withJSONObject: ids)), encoding: .utf8)!,
+            "--look", style, "--strength", strength,
+            "--wb", wb ? "true" : "false", "--exposure", exposure ? "true" : "false",
+            "--tone", tone ? "true" : "false"
+        ])
+    }
+
+    func discardPendingPlan() {
+        guard !busy else { return }
+        pendingPlanURL = nil
+        proposedCount = 0
+        planSummary = ""
+        phase = "Plan discarded — settings can be changed"
+    }
+
+    func applyReviewedPlan() {
+        guard !busy, let plan = pendingPlanURL else { return }
+        pendingPlanURL = nil
+        planSummary = ""
+        runEngine(stage: "apply", arguments: ["--session", plan.path, "--confirm"])
+    }
+
+    func restoreLastSession() {
+        guard !busy, let session = restoreSessionURL else { return }
+        runEngine(stage: "restore", arguments: ["--session", session.path, "--confirm"])
+    }
+
+    private func runEngine(stage: String, arguments: [String]) {
+        begin(stage == "analyze" ? "Reading baselines and analyzing previews" :
+              stage == "apply" ? "Applying approved adjustments" : "Restoring original settings")
+        engineStage = stage
+        let root = self.root
+        let helper = engineURL
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let node = nodePath
+        DispatchQueue.global(qos: .userInitiated).async {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: node)
+            task.arguments = [helper.path, "--mode", stage] + arguments
+            task.currentDirectoryURL = root
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = home + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+            env["TONEPILOT_PROJECT_DIR"] = root.path
+            env["TONEPILOT_RUNS_DIR"] = self.runs.path
+            env["TONEPILOT_CODEX"] = self.codexPath
+            if let metrics = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("TonePilotMetrics") {
+                env["TONEPILOT_METRICS_BIN"] = metrics.path
+            }
+            task.environment = env
+            task.standardInput = FileHandle.nullDevice
+            let output = Pipe()
+            task.standardOutput = output
+            task.standardError = output
+            let lock = NSLock()
+            var completeOutput = ""
+            output.fileHandleForReading.readabilityHandler = { handle in
+                let next = handle.availableData
+                if next.isEmpty { handle.readabilityHandler = nil; return }
+                let chunk = String(decoding: next, as: UTF8.self)
+                lock.lock()
+                completeOutput += chunk
+                lock.unlock()
+                for line in chunk.split(separator: "\n") {
+                    guard let data = String(line).data(using: .utf8),
+                          let event = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                          let kind = event["type"] as? String else { continue }
+                    let message = (event["phase"] as? String) ?? (event["message"] as? String) ?? kind
+                    DispatchQueue.main.async {
+                        if kind == "progress" {
+                            self.phase = message
+                            self.note(message + ((event["filename"] as? String).map { " — " + $0 } ?? ""))
+                        }
+                    }
+                }
+            }
+            task.terminationHandler = { process in
+                output.fileHandleForReading.readabilityHandler = nil
+                // Node owns its subprocess pipes, so unlike Codex MCP child output
+                // this stream terminates when the engine itself exits.
+                let tail = output.fileHandleForReading.readDataToEndOfFile()
+                lock.lock()
+                completeOutput += String(decoding: tail, as: UTF8.self)
+                let all = completeOutput
+                lock.unlock()
+                let events: [[String: Any]] = all.split(separator: "\n").compactMap { line in
+                    guard let data = String(line).data(using: .utf8) else { return nil }
+                    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                }
+                let saved = events.last(where: { $0["type"] as? String == "session" })?["path"] as? String
+                let last = events.last(where: { $0["type"] as? String == "complete" })
+                let error = events.last(where: { $0["type"] as? String == "error" })?["message"] as? String
+                let sessionPath = (last?["path"] as? String) ?? saved
+                DispatchQueue.main.async {
+                    self.runningProcess = nil
+                    self.busy = false
+                    self.refreshSessions()
+                    if let sessionPath {
+                        let dir = URL(fileURLWithPath: sessionPath)
+                        let reportURL = dir.appendingPathComponent("report.md")
+                        self.reportURL = reportURL
+                        self.report = (try? String(contentsOf: reportURL, encoding: .utf8)) ?? ""
+                    }
+                    if process.terminationStatus == 0, let state = last?["state"] as? String {
+                        switch state {
+                        case "planned":
+                            if let sessionPath { self.pendingPlanURL = URL(fileURLWithPath: sessionPath) }
+                            let proposed = last?["proposed"] as? Int ?? 0
+                            let flagged = last?["flagged"] as? Int ?? 0
+                            self.proposedCount = proposed
+                            self.planSummary = "\(proposed) photos with proposed edits · \(flagged) flagged"
+                            self.phase = "Plan ready — review before applying"
+                        case "applied":
+                            if let sessionPath { self.restoreSessionURL = URL(fileURLWithPath: sessionPath) }
+                            self.phase = "Develop values verified — review in Lightroom"
+                        case "restored":
+                            self.restoreSessionURL = nil
+                            self.phase = "Original Develop settings restored"
+                        default: self.phase = "Session finished"
+                        }
+                        self.note(self.phase)
+                    } else {
+                        self.phase = "Editing operation failed — review session report"
+                        self.note(error ?? "Engine failed with exit code \(process.terminationStatus)")
+                        self.alertMessage = error ?? "TonePilot encountered an error. Review the session report and Lightroom Develop history."
+                    }
+                    self.refresh()
+                }
+            }
+            DispatchQueue.main.async { self.runningProcess = task }
+            do { try task.run() }
+            catch {
+                output.fileHandleForReading.readabilityHandler = nil
+                DispatchQueue.main.async {
+                    self.runningProcess = nil
+                    self.fail("Unable to start the guarded engine: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -231,9 +350,9 @@ final class WorkspaceModel: ObservableObject {
     }
 
     private func launchScanner(completion: @escaping (String, Int32) -> Void) {
-        let helper = root.appendingPathComponent("TonePilot/scan-selection.mjs")
+        let helper = scannerURL
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let node = home + "/.local/bin/node"
+        let node = nodePath
         DispatchQueue.global(qos: .userInitiated).async {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: node)

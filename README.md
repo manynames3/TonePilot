@@ -9,7 +9,7 @@ Your clients want beautiful skin tones, consistent color, and photographs that f
 **TonePilot is being built to take the repetitive first pass off your plate. You keep the creative decisions, and you keep working in Lightroom.**
 
 > [!IMPORTANT]
-> **Early prototype · v0.3.1 · Not production-ready.** The native Mac app builds and launches, and the Codex/Lightroom orchestration is implemented. **A complete AI analysis → Lightroom Develop edit → verification cycle has not been validated yet.** Please use test photos and a backed-up catalog only. Time savings and edit accuracy have **not** been benchmarked.
+> **Early prototype · v0.4 · Not production-ready.** The native Mac app builds and launches, and a real read-only five-photo AI analysis produced four proposed edits and one skip. A guarded read/write/restore cycle passes simulated Lightroom tests. **Actual real-photo Develop writes, editing quality, and catalog restoration have not yet been verified.** Use a backed-up disposable test catalog only. Time savings have not been benchmarked.
 
 ## A closer look
 
@@ -39,60 +39,64 @@ Presets are useful. But a preset can't always tell the difference between intent
 
 A photograph can look good on its own and still feel noticeably different beside the next frame. Bringing a gallery together takes judgment—and a lot of repetitive work.
 
-**The value proposition:** an AI-assisted starting point that reduces tedious corrections **while leaving the artistic finish and final approval to the photographer.** That's the product goal, not a proven result of v0.1.
+**The value proposition:** an AI-assisted starting point that reduces tedious corrections **while leaving the artistic finish and final approval to the photographer.** That's the product goal, not a proven result of v0.4.
 
-## How TonePilot is intended to work
+## How TonePilot v0.4 works
 
-1. **Select your photos in Lightroom.** Stay in your existing catalog. The current pilot is limited to **20 test images**.
-2. **Tell TonePilot what matters.** Choose Natural, Soft & Airy, or Scene Mood; select correction strength; enable white balance/skin tone, exposure, and/or tonal adjustments.
-3. **Run AI First Pass.** Codex is instructed to inspect Lightroom-rendered previews, identify high-confidence problems, save the existing Develop settings, and apply conservative corrections through Lightroom MCP.
-4. **Review where you already work.** Check the results and any flagged exceptions inside Lightroom Classic. TonePilot writes a session report; it does not automatically export your photographs.
+1. **Select your photos in Lightroom Classic.** Stay in your catalog, with 1–20 pilot photos selected.
+2. **Choose your editing direction.** Set Natural, Soft & Airy, or Scene Mood; correction strength; white balance, exposure and/or tone.
+3. **Analyze First Pass (read-only).** The guarded engine captures source identity, available Develop settings, and Lightroom-rendered previews before cloud AI evaluates the photographs. Uncertain recommendations are flagged.
+4. **Review the proposed settings.** A private session report shows proposed changes and confidence. No Lightroom Develop write happens during analysis.
+5. **Explicitly Apply Reviewed Plan.** TonePilot checks the exact selected IDs, source file identity, current Develop values and approved edit limits. Only a restricted eight-key set can be written. The engine independently verifies the values and checks unrelated settings for changes.
+6. **Review inside Lightroom.** Inspect photos in Lightroom Classic. A conditional restoration command can restore verified TonePilot changes if Lightroom's values have not been altered afterward.
 
-**Lightroom is the editor. TonePilot is the assistant.** No second catalog. No competing RAW processor. No duplicate high-resolution photo browser.
+**Lightroom is the editor. TonePilot is the assistant.** No second catalog, image browser or automatic export. Review and recovery are still experimental; do not use valuable images for this pilot.
 
 ## What's available today?
 
-| Capability | Honest status |
+| Capability | Verified status |
 | --- | --- |
-| Native SwiftUI Editorial Studio and menu-bar entry | **Built and launched** on Apple Silicon |
-| Correction preferences for white balance, exposure, and tone | **Implemented** |
-| Read-only Lightroom selection scanner | **Implemented and live-tested** on five selected HEIC photos (Oct 21, 2026) |
-| Codex CLI + Lightroom MCP editing orchestration | **Wired**; Codex read access tested with automatic approval review; actual Develop writes unverified |
-| Limit selection to 20 photos for early testing | **Implemented in the app**, with agent instructions |
-| Original-setting baseline, preview-based review, edit report | **Requested by the editing agent**, not independently verified |
-| Accurate, consistent color across real photo sessions | **Unproven**; needs tests with RAW galleries |
-| Fully local/offline AI processing | **Not included** |
-| One-click edits on hundreds of photos | **Not supported yet** |
-| Signed and notarized macOS distribution | **Not available** |
+| Native SwiftUI Editorial Studio and menu-bar utility | **Built and launched** on Apple Silicon |
+| Portable editing engine bundled in the app; private session storage | **Implemented** in v0.4 |
+| Read-only Lightroom selection + metadata + previews | **Verified on five HEIC photos** |
+| AI evaluation of those Lightroom previews | **Verified**: 4 proposed edits, 1 skipped, 0 applied; no evidence yet that corrections are superior |
+| Explicit review-before-apply gate | **Implemented** in SwiftUI |
+| Setting and photo allowlists, stale-selection and catalog-source checks | **Implemented**, passing simulated bridge tests |
+| Baseline journal, read-back checks, conditional restoration | **Implemented**, verified with a mocked Lightroom server; real catalog recovery untested |
+| Independent preview luminance/clipping measurements | **Implemented**, histogram smoke-tested; not skin-tone QA |
+| 20-photo pilot limit | **Enforced** in the engine and app |
+| Accurate results or 40% editing time saved | **Not established**; blind benchmark harness added but has no real scores |
+| Reliable 500-photo edits | **Not supported** |
+| Signed/notarized public installer | **Not yet** (local ad-hoc signature only) |
 
-A live selection scan returned five photos on October 21, 2026, and a read-only Codex MCP call successfully retrieved the same five after enabling Codex's automatic approval review. An earlier first-pass attempt made **zero edits** because the Codex approval policy blocked the initial Lightroom tool call. The UI completion handling and approval workflow were updated in v0.3.1; end-to-end editing still requires verification.
+**Important:** The previous five-photo edit attempt made zero writes due to a Codex MCP permission error. The new v0.4 agent no longer has a direct Lightroom write path: it only produces data proposals. TonePilot's guarded engine applies prevalidated changes after explicit user confirmation, then reads back Lightroom values. These real write operations still require validation on disposable test photos.
 
 ## Under the hood
 
-TonePilot does **not** currently include a custom trained editing model or a local LLM.
+TonePilot currently uses cloud AI via your existing Codex CLI, **not** a specialized trained model or an offline local LLM.
 
 ~~~text
-TonePilot (native macOS / SwiftUI)
-     │
-     ├─ Read-only selection sync ──► Lightroom MCP
-     │
-     └─ "Run AI First Pass"
-              │
-              ▼
-       Codex CLI (cloud-backed AI)
-              │
-              ▼
-       Lightroom Classic MCP bridge
-              │
-              ▼
-       Adobe Lightroom Classic
-       (previews + nondestructive Develop changes)
-              │
-              ▼
-       You review the actual images in Lightroom
+Lightroom Classic → TonePilot selection/metadata/preview bridge
+                               |
+                   Read-only AI image analysis
+                      (Codex CLI, cloud)
+                               |
+                      Saved edit plan
+                               |
+               Photographer review + confirmation
+                               |
+              Typed validator / ID & catalog checks
+                               |
+                  Guarded Develop writes
+                               |
+              Lightroom value read-back / preview QA
+                               |
+           Reports + conditional session restoration
 ~~~
 
-The AI is provided through **your existing authenticated Codex CLI configuration**, not a standalone TonePilot API subscription. Usage, model access, and limits depend on your Codex configuration. Lightroom MCP is an **independent third-party integration** maintained at [Automaat/lightroom-mcp](https://github.com/Automaat/lightroom-mcp).
+Unlike the v0.3 prototype, Codex does **not** receive direct Lightroom write tools for the image-analysis step. Only the guarded Node engine may call set_develop_settings. A local Swift histogram utility measures cached JPEG luminance and clipping, but cannot certify skin-tone correctness. Unsupported controls, notably numeric Temp/Tint on certain HEIC files, are skipped.
+
+This still depends on the third-party [Lightroom Classic MCP bridge](https://github.com/Automaat/lightroom-mcp). It is not an Adobe-official integration. See [engine details](TonePilot/Engine/README.md) and the [blind benchmark protocol](TonePilot/Benchmarks/README.md).
 
 ### Lightweight by design
 
@@ -100,32 +104,28 @@ TonePilot doesn't build a second photo library or constantly render previews in 
 
 There will still be resource costs when Codex is active and Lightroom generates previews. Any memory, speed, or time-savings claims need real benchmarks.
 
-## Try the development prototype
+## Build and try the development prototype
 
-> **For developers and testers.** Not an installer for general photographers yet. The current code expects the checkout at the path below and builds the app into your user Applications folder.
+This is for photographers comfortable installing development software and **test photos only**.
 
-**Requirements:** macOS 14+, Apple Silicon (tested on an M4 Mac mini), Lightroom Classic, [Node.js](https://nodejs.org/) 18+, authenticated [Codex CLI](https://github.com/openai/codex), and Xcode Command Line Tools (Swift compiler).
+Requirements: macOS 14+, Lightroom Classic, Node.js 18+, npx, authenticated Codex CLI, and Xcode Command Line Tools for a source build. Tested on an M4 Mac mini.
 
-1. Clone and build:
+~~~bash
+git clone https://github.com/manynames3/TonePilot.git
+cd TonePilot
+./TonePilot/build.sh
+open ~/Applications/TonePilot.app
+~~~
 
-   ~~~bash
-   git clone https://github.com/manynames3/TonePilot.git ~/Documents/Lightroom-AI-FirstPass
-   cd ~/Documents/Lightroom-AI-FirstPass
-   ./TonePilot/build.sh
-   open ~/Applications/TonePilot.app
-   ~~~
+Install and start the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) following its upstream directions. The native app bundles the guarded engine and scanner; it no longer needs to be installed into any specific source directory. Local session plans and audit reports are stored under your user's Library/Application Support/TonePilot/runs directory.
 
-2. Install the [Lightroom MCP plugin](https://github.com/Automaat/lightroom-mcp#install-other-ai-tools), restart Lightroom Classic, then go to **File → Plug-in Manager → Lightroom MCP → Start Server**.
-3. Register the Lightroom bridge for Codex if needed:
+1. Back up the catalog and select a few expendable test photos.
+2. Read selection in TonePilot and confirm the count.
+3. Choose correction preferences, then **Analyze First Pass**. This step never writes Develop settings.
+4. Open the report, verify which changes were proposed, and only then optionally confirm **Apply Reviewed Plan**.
+5. Review all results inside Lightroom. Conditional restoration is available for verified session edits; it refuses to overwrite later manual adjustments.
 
-   ~~~bash
-   codex mcp add lightroom -- npx -y @mskalski/lightroom-mcp
-   ~~~
-
-4. **Back up the Lightroom catalog.** Select no more than 20 disposable/test images in Lightroom, return to TonePilot, and click **Read selection**.
-5. If the connection is confirmed, select correction types and use **Create AI First Pass**. Inspect every change and Lightroom's Develop History before doing anything else.
-
-**Build note:** the development app is locally **ad-hoc signed, not notarized**. macOS may require user approval on another machine. A portable installer and first-run onboarding are planned.
+Run the local tests with the Node test runner on TonePilot/tests/*.test.mjs. A local, unnotarized developer-preview disk image may be generated in dist/; it is not an official release installer. The current tests exercise a simulated Lightroom server, not a real editing quality benchmark.
 
 ## Latest v0.3.1: stalled-session fix
 
@@ -138,7 +138,7 @@ The v0.3.1 changes:
 - **Truthful outcomes:** reports describing blocked tool access or incomplete edits are surfaced as failures, even when the agent exits with status 0.
 - **Read-only validation:** a controlled Codex MCP call retrieved the five selected photos without writing Lightroom adjustments.
 
-**Still untested:** a complete, successful AI first-pass edit on a real photograph. Verified access is not proof of editing quality.
+**Still untested:** a complete successful Lightroom Develop-write pilot on a real test photograph. The v0.4 guarded engine replaces the former direct agent workflow.
 
 ### If a session appears stuck
 
@@ -150,17 +150,17 @@ Update to the current build, relaunch TonePilot, verify the selection again, and
 
 - **Not offline-only.** Codex may send rendered image previews and relevant metadata to its configured AI service. Confirm you have the necessary consent and review the provider's privacy terms before using client photographs.
 - **Back up first.** Lightroom changes are nondestructive but still change catalog editing state.
-- **Selection safety is not independently enforced at the MCP tool boundary yet.** The AI is instructed to restrict itself to selected photo IDs, save baseline settings, and avoid unrelated actions; do not mistake these instructions for a hard sandbox.
+- **The v0.4 guarded engine enforces selected IDs, source file identity, allowed Develop keys, conservative deltas and read-back checks.** AI proposals cannot bypass those restrictions through the app. This is not a full Lightroom sandbox: another external process or third-party plug-in could still alter the catalog, and catalog-wide rollback is not yet tested.
 - **No automatic exporting or publication.** The intended workflow leaves final review and delivery in Lightroom.
 - **No production quality guarantee.** This is a research-and-development prototype until actual edit quality and reliability are measured.
 
 ## What comes next?
 
-1. **Prove the first pass works:** reliably connect to Lightroom, capture originals, make and verify a small set of actual adjustments.
-2. **Prove it helps:** compare corrections against photographer-approved reference edits, especially difficult skin-tone tint and exposure.
-3. **Make it safer:** enforce tool permissions, improve error recovery and rollback, and validate before any larger batches.
-4. **Refine Editorial Studio:** improve accessible interactions, progress states, and live Lightroom diagnostics. The v0.3 visual redesign is implemented; the editing engine is still experimental.
-5. **Make it distributable:** portable paths, onboarding, installer, signing, and notarization.
+1. **Prove actual writes:** use a disposable Lightroom test catalog to validate first-pass Develop writes, captured baselines, verified re-rendering and restoration.
+2. **Prove photographic quality:** blind-score held-out galleries versus Lightroom Auto and established editors using the benchmark harness.
+3. **Validate safety in Lightroom itself:** simulated guards pass, but partial-write and crash recovery need real catalog tests.
+4. **Scale and refine workflow:** real scene grouping, batch checkpointing, Lightroom-native exception navigation and accessibility.
+5. **Make it distributable:** bundle the remaining third-party dependencies, guided plug-in setup, installer, trusted signing and notarization.
 
 ## About the project
 

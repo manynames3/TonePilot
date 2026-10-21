@@ -75,12 +75,18 @@ struct EditorialWorkspace: View {
         !model.busy && model.lightroomInstalled && !model.lightroomOpen
     }
     private var primaryReady: Bool {
-        canOpenLightroom || canRun || (!validSelection && canSync)
+        if model.pendingPlanURL != nil {
+            return model.proposedCount > 0 && !model.busy
+        }
+        return canOpenLightroom || canRun || (!validSelection && canSync)
     }
     private var primaryTitle: String {
         if scanning { return "Reading Lightroom selection…" }
         if canOpenLightroom { return "Open Lightroom Classic" }
-        if canRun { return "Create AI First Pass" }
+        if model.pendingPlanURL != nil {
+            return model.proposedCount > 0 ? "Apply reviewed first-pass plan" : "No safe edits proposed"
+        }
+        if canRun { return "Analyze first pass · no edits yet" }
         if canSync && !validSelection {
             return model.scanComplete ? "Update Lightroom selection" : "Read Lightroom selection"
         }
@@ -94,7 +100,7 @@ struct EditorialWorkspace: View {
         if model.photos.isEmpty { return "Select photos in Lightroom first" }
         if model.photos.count > 20 { return "Reduce your selection to 20 photos" }
         if !whiteBalance && !exposure && !tone { return "Enable at least one correction" }
-        return "Create AI First Pass"
+        return "Analyze first pass"
     }
 
     var body: some View {
@@ -108,10 +114,13 @@ struct EditorialWorkspace: View {
                             sectionSelection
                             sectionRule
                             sectionLooks
+                                .disabled(model.pendingPlanURL != nil)
                             sectionRule
                             sectionStrength
+                                .disabled(model.pendingPlanURL != nil)
                             sectionRule
                             sectionCorrections
+                                .disabled(model.pendingPlanURL != nil)
                         }
                         .padding(.horizontal, 30)
                         .padding(.bottom, 14)
@@ -143,6 +152,18 @@ struct EditorialWorkspace: View {
             Button("OK", role: .cancel) { model.alertMessage = nil }
         } message: {
             Text(model.alertMessage ?? "")
+        }
+        .confirmationDialog("Apply the AI edit plan?", isPresented: $model.confirmApply) {
+            Button("Apply to selected Lightroom photos") { model.applyReviewedPlan() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("TonePilot will verify selection and original Develop settings before each restricted write. Back up your Lightroom catalog first. Review all edits in Lightroom.")
+        }
+        .confirmationDialog("Restore original settings?", isPresented: $model.confirmRestore) {
+            Button("Restore verified TonePilot changes") { model.restoreLastSession() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Only settings written and verified by this session can be restored. Lightroom will refuse recovery if changes were made afterward.")
         }
         .onAppear { model.refresh() }
     }
@@ -478,6 +499,23 @@ struct EditorialWorkspace: View {
                 }
                 .padding(.bottom, 3)
             }
+            if model.pendingPlanURL != nil && !model.busy {
+                HStack {
+                    Image(systemName: "checkmark.shield")
+                    Text(model.planSummary)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(2)
+                    Spacer()
+                    Button("Read plan") {
+                        model.refreshSessions()
+                        model.panel = .reports
+                    }
+                    .font(.system(size: 13, weight: .bold))
+                    Button("Discard plan") { model.discardPendingPlan() }
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundStyle(Editorial.accent)
+            }
             if !model.report.isEmpty && !model.busy {
                 Button {
                     model.refreshSessions()
@@ -491,8 +529,11 @@ struct EditorialWorkspace: View {
             }
             if !editing {
             Button {
-                if canRun {
-                    model.startFirstPass(style: selectedLook, strength: strength,
+                if model.pendingPlanURL != nil && model.proposedCount > 0 {
+                    model.confirmApply = true
+                } else if canRun {
+                    model.startFirstPass(style: selectedLook == "Scene mood" ? "True to scene" : selectedLook,
+                                         strength: strength,
                                          wb: whiteBalance, exposure: exposure, tone: tone)
                 } else if canSync {
                     model.scanSelection()
@@ -581,6 +622,13 @@ struct EditorialWorkspace: View {
                             .buttonStyle(.plain)
                         }
                         if !model.report.isEmpty {
+                            if model.restoreSessionURL != nil {
+                                Button("Restore this session’s original Develop values") {
+                                    model.confirmRestore = true
+                                }
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(Editorial.accent)
+                            }
                             Text(.init(String(model.report.prefix(9000))))
                                 .font(.system(size: 14))
                                 .textSelection(.enabled)

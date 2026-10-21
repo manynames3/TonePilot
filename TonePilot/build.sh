@@ -19,7 +19,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleIdentifier</key><string>app.tonepilot.mac</string>
     <key>CFBundleExecutable</key><string>TonePilot</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.3.1</string>
+    <key>CFBundleShortVersionString</key><string>0.4.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -48,6 +48,16 @@ if /usr/bin/swift "$ROOT/Source/IconMaker.swift" >/dev/null; then
     /usr/bin/iconutil -c icns "$iconset" -o "$RESOURCES/TonePilot.icns"
     rm -rf "$(dirname "$iconset")"
 fi
+
+# Lightweight native histogram measurements operate on cached Lightroom JPEGs.
+# Metrics help detect exposure/clipping regressions; they never override visual judgment.
+/usr/bin/swiftc -O -framework AppKit "$ROOT/Engine/ImageMetrics.swift" \
+    -o "$APP/Contents/MacOS/TonePilotMetrics"
+
+# Bundle the guarded engine and read-only selection scanner with TonePilot.
+mkdir -p "$RESOURCES/TonePilotEngine"
+cp "$ROOT/Engine/engine.mjs" "$ROOT/Engine/guard.mjs" "$ROOT/Engine/lightroom.mjs" "$RESOURCES/TonePilotEngine/"
+cp "$ROOT/scan-selection.mjs" "$RESOURCES/scan-selection.mjs"
 
 /usr/bin/codesign --force --sign - "$APP"
 /usr/bin/plutil -lint "$APP/Contents/Info.plist"

@@ -1,27 +1,31 @@
-# TonePilot macOS — SwiftUI developer source
+# TonePilot macOS — source and development
 
-The native **Editorial Studio** interface lives in `Source/TonePilotApp.swift`. The supporting Lightroom selection scanner and Codex AI editing controller are implemented in `scan-selection.mjs` and `Source/WorkspaceModel.swift`.
+The native Editorial Studio interface remains a lightweight Lightroom Classic companion. v0.4 adds a **review-before-apply** editing pipeline rather than allowing a free-form AI agent to write Develop settings.
 
-Build and launch:
+The app uses:
+- Source/TonePilotApp.swift — macOS SwiftUI controls, review confirmation, session restoration interface.
+- Source/WorkspaceModel.swift — Lightroom selection, process/status management, private session history.
+- Engine/engine.mjs — read-only analysis, guarded apply, verification and conditional restoration.
+- Engine/guard.mjs — explicit Develop-setting allowlist, bounded corrections and independent unchanged-setting checks.
+- Engine/lightroom.mjs — local MCP JSON-RPC bridge, with timeouts and selection validation.
+- Engine/ImageMetrics.swift — local preview histogram and clipping measurements.
+- scan-selection.mjs — fast direct read-only selection scanner.
+- tests/ — isolated mocked Lightroom and AI tests.
+- Benchmarks/ — protocol and harness for real blind photographic evaluation.
 
-```bash
-./TonePilot/build.sh
-open ~/Applications/TonePilot.app
-```
+## Build
 
-Run the read-only scanner tests:
+Run TonePilot/build.sh from the repository root. The build places the complete native application bundle in your user Applications folder, bundles the guarded engine and preview metrics helper, and ad-hoc signs the app. It is NOT notarized.
 
-```bash
-node --test TonePilot/tests/selection-scanner.test.mjs
-```
+The app stores editable session reports and plans in your macOS user Application Support/TonePilot/runs directory—not alongside the Git source. This includes filenames and relevant settings; the contents must be treated as private client data.
 
-For requirements, plugin setup, safety limitations, and development status see the [project README](../README.md).
+Run all test suites using Node's test runner over TonePilot/tests/*.test.mjs.
 
-**Experimental:** Read-only selection syncing was verified with five photos on October 21, 2026; Codex MCP access was also verified after automatic approval review. Actual Develop edits have **not** yet been validated. Do not run real edits without catalog backups and a successful pilot.
+## Verified today
 
-## v0.3.1 reliability patch
+- The Mac app builds and opens with its native UI.
+- The Lightroom MCP bridge returns real selection IDs, Develop metadata and rendered JPEG previews.
+- A read-only five-HEIC cloud AI pilot produced four proposed changes and one skipped photo; **none were applied**.
+- The simulated full write/verify/restore process and multiple safety failure tests pass.
 
-- The native app launches Codex with automatic approval review and the workspace-write sandbox.
-- Codex execution now completes on process termination, even if child MCP servers keep stdout open.
-- Blocked and incomplete sessions no longer appear as successful editing sessions.
-- AI photo edits still require validation on test images and a backed-up catalog.
+**Not verified:** actual Develop writes in a real sandbox Lightroom catalog, objective color/skin accuracy, client-safe restoration, quantified time savings, scale beyond 20 photos, and notarized distribution. Do not charge for this as a finished editing product.

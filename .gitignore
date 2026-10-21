@@ -54,3 +54,9 @@ npm-debug.log*
 
 # Only publish manually reviewed, in-app documentation screenshots
 !docs/screenshots/*.png
+
+# Local repo analysis data
+.repowise/
+
+# Local developer preview disk images (not notarized)
+dist/
