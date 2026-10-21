@@ -51,3 +51,6 @@ config.local.*
 node_modules/
 coverage/
 npm-debug.log*
+
+# Only publish manually reviewed, in-app documentation screenshots
+!docs/screenshots/*.png

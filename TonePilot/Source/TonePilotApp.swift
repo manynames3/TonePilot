@@ -19,7 +19,7 @@ struct TonePilotApp: App {
                 .frame(minWidth: 424, minHeight: 548)
                 .preferredColorScheme(.dark)
         }
-        .defaultSize(width: 478, height: 775)
+        .defaultSize(width: 520, height: 890)
         .windowResizability(.contentSize)
         .windowStyle(.titleBar)
 
@@ -123,16 +123,16 @@ struct TonePilotView: View {
             Spacer(minLength: 4)
             HStack(spacing: 6) {
                 Circle()
-                    .fill(model.lightroomOpen && model.bridgeInstalled && model.codexReady ? Color.green : Color.orange)
+                    .fill(model.scanComplete && !model.photos.isEmpty ? Color.green : Color.orange)
                     .frame(width: 7, height: 7)
-                Text(model.lightroomOpen && model.bridgeInstalled && model.codexReady ? "Ready" : "Setup")
+                Text(model.scanComplete && !model.photos.isEmpty ? "Selected" : (model.lightroomOpen && model.bridgeInstalled && model.codexReady ? "Detected" : "Setup"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.8))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(.white.opacity(0.065), in: Capsule())
-            .help("Shows installed/running prerequisites. Live tool connectivity is checked during Scan Selection.")
+            .help("Detected means prerequisites are found; the live connection is verified only by Sync selection.")
         }
         .padding(.horizontal, 21)
         .padding(.top, 15)
@@ -188,7 +188,7 @@ struct TonePilotView: View {
 
     private var connectionSection: some View {
         VStack(alignment: .leading, spacing: 11) {
-            sectionHeader("Connected to Lightroom", accessory: "arrow.clockwise") { model.refresh() }
+            sectionHeader("Lightroom connection", accessory: "arrow.clockwise") { model.refresh() }
             HStack(spacing: 11) {
                 Image(systemName: "photo")
                     .font(.system(size: 16))
@@ -222,7 +222,7 @@ struct TonePilotView: View {
         if !model.lightroomOpen { return "Not running — open Lightroom to continue" }
         if !model.bridgeInstalled { return "Lightroom MCP plug-in missing" }
         if !model.codexReady { return "AI engine (Codex) not found" }
-        return "App open · Plug-in installed · AI available"
+        return "App open · Plug-in installed · AI available — sync to verify"
     }
 
     private var selectionSection: some View {
