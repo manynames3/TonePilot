@@ -59,8 +59,9 @@ export async function runDoctor({live = false} = {}) {
   let own = null;
   try { own = JSON.parse(fs.readFileSync(bridgeFile(), 'utf8')); } catch { /* not installed or never started */ }
   const ownListening = !!own && /LISTEN/.test(run('/usr/sbin/lsof', ['-nP', '-iTCP:' + Number(own.requestPort), '-sTCP:LISTEN']).stdout || '');
-  checks.push(check('tonepilot-plugin', ownListening, 'TonePilot Lightroom plug-in', ownListening ? 'Listening (version ' + (own.plugin || '?') + ')' : own ? 'Not running' : 'Not installed',
-    ownListening ? null : 'Optional: install TonePilot.lrplugin in Lightroom (see TonePilot/LightroomPlugin/README.md); until then the Lightroom MCP bridge is used.', 'recommended'));
+  // Shown only once installed: it isn't verified inside Lightroom yet, so setup doesn't ask for it.
+  if (own) checks.push(check('tonepilot-plugin', ownListening, 'TonePilot Lightroom plug-in', ownListening ? 'Listening (version ' + (own.plugin || '?') + ')' : 'Not running',
+    ownListening ? null : 'Restart Lightroom Classic; until then the Lightroom MCP bridge is used.', 'recommended'));
   const mcpSeverity = ownListening ? 'recommended' : 'required';
 
   const version = pluginVersion();
