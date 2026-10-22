@@ -80,3 +80,19 @@ test('doctor reports every required check and never needs Lightroom to answer', 
     assert.ok(r.complete.checks.every(c => typeof c.title === 'string' && (c.ok || c.fix)), 'every failing check says how to fix it');
   } finally { x.cleanup(); }
 });
+
+test('a preview that fails briefly is retried; one that never renders flags only that photo', () => {
+  const x = setup({photos: {101: rawPhoto('A.CR3'), 102: rawPhoto('B.CR3'), 103: rawPhoto('C.CR3')},
+    faults: {previewFailFirst: {101: 2}, previewOffline: ['103']}});
+  try {
+    const r = x.run(['--mode', 'analyze', '--ids', '["101","102","103"]']);
+    assert.equal(r.status, 0, JSON.stringify(r.error));
+    const v = x.show(r.complete.dir);
+    assert.equal(v.status, 'planned');
+    assert.equal(v.photos[0].state, 'proposed', 'recovered after two failed attempts');
+    assert.equal(v.photos[1].state, 'proposed');
+    assert.equal(v.photos[2].state, 'flagged');
+    assert.match(v.photos[2].reason, /could not render a preview \(error loading thumb\)/);
+    assert.equal(x.get().writes.length, 0);
+  } finally { x.cleanup(); }
+});

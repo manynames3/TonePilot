@@ -73,7 +73,14 @@ function handle(msg) {
   if (name === 'get_photo_preview') {
     const p = data.photos[String(args.photo_id)];
     if (!p) return error(id, 'Photo not found');
-    if ((faults.previewOffline || []).includes(String(args.photo_id))) return error(id, 'Preview failed: original offline');
+    if ((faults.previewOffline || []).includes(String(args.photo_id))) return error(id, '[string "HandlerPreview.lua"]:91: Preview failed: error loading thumb');
+    const pid = String(args.photo_id), flaky = faults.previewFailFirst?.[pid];
+    if (flaky) {   // transient: fail the first N requests for this photo
+      data.previewFailures = data.previewFailures || {};
+      data.previewFailures[pid] = (data.previewFailures[pid] || 0) + 1;
+      save(data);
+      if (data.previewFailures[pid] <= flaky) return error(id, '[string "HandlerPreview.lua"]:91: Preview failed: error loading thumb');
+    }
     const body = Buffer.from('MOCKPREVIEW:' + args.photo_id + ':' + JSON.stringify(p.settings) + ':'.padEnd(200, '.'));
     return respond(id, {content: [{type: 'text', text: JSON.stringify({photo_id: args.photo_id, width: 640, height: 427})},
       {type: 'image', mimeType: 'image/jpeg', data: body.toString('base64')}]});

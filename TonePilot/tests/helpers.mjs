@@ -32,7 +32,7 @@ export function setup({photos, selected, faults = {}, ai = {}, extra = {}} = {})
   writeFileSync(state, JSON.stringify({selected: selected || Object.keys(photos), writes: [], photos, faults, ai, ...extra}));
   const env = {...process.env, TONEPILOT_NPX: process.execPath, TONEPILOT_MCP_ARGS: JSON.stringify([MOCK_MCP]),
     TONEPILOT_MOCK_STATE: state, TONEPILOT_CODEX: MOCK_MODEL, TONEPILOT_ANALYZER: MOCK_ANALYZER,
-    TONEPILOT_RUNS_DIR: runs, TONEPILOT_SETTLE_MS: '0', TONEPILOT_WRITE_TIMEOUT_MS: '800'};
+    TONEPILOT_RUNS_DIR: runs, TONEPILOT_SETTLE_MS: '0', TONEPILOT_WRITE_TIMEOUT_MS: '800', TONEPILOT_PREVIEW_RETRY_MS: '0'};
   const parse = out => out.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return {type: 'raw', line: l}; } });
   const run = (args, envExtra = {}) => {
     const r = spawnSync(process.execPath, [ENGINE, ...args], {env: {...env, ...envExtra}, encoding: 'utf8', timeout: 30000});

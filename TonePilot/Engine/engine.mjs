@@ -32,6 +32,7 @@ const codexPath = process.env.TONEPILOT_CODEX || path.join(os.homedir(), '.local
 // A write whose request may still be queued inside Lightroom is not declared
 // "not applied" until this long after it was sent.
 const SETTLE_MS = Number(process.env.TONEPILOT_SETTLE_MS ?? 60000);
+const PREVIEW_RETRY_MS = Number(process.env.TONEPILOT_PREVIEW_RETRY_MS ?? 1500);
 const AI_CONCURRENCY = Math.min(4, Math.max(1, Number(process.env.TONEPILOT_AI_CONCURRENCY) || 2));
 const PRESENT = new Set(['applied', 'apply-mismatch']);
 
@@ -133,9 +134,20 @@ async function runAnalysis(client, journal, dir) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tonepilot-previews-'));
   fs.chmodSync(tmp, 0o700);
   const previews = new Map();
+  // Lightroom sometimes has no cached preview for a moment ("error loading thumb") while it
+  // rebuilds one. Retry with a pause and another size before giving up on that photo.
   const fetchPreview = async id => {
     if (previews.has(id)) return fs.readFileSync(previews.get(id));
-    const jpeg = previewBytes(await client.tool('get_photo_preview', {photo_id: id, size: 640}));
+    let jpeg, lastError;
+    for (const [attempt, size] of [640, 1024, 640, 320].entries()) {
+      try { jpeg = previewBytes(await client.tool('get_photo_preview', {photo_id: id, size})); break; }
+      catch (e) {
+        if (e.kind === 'closed') throw e;
+        lastError = e;
+        await sleep(PREVIEW_RETRY_MS * (attempt + 1));
+      }
+    }
+    if (!jpeg) throw new Error('Lightroom could not render a preview (' + String(lastError?.message || '').replace(/^.*Preview failed: /, '') + ')');
     const file = path.join(tmp, id + '.jpg');
     fs.writeFileSync(file, jpeg, {mode: 0o600});
     previews.set(id, file);
@@ -168,7 +180,13 @@ async function runAnalysis(client, journal, dir) {
       checkStop();
       if (p.previewHash) continue;
       emit('progress', {step: 'measure', phase: 'Measuring faces and highlights', index: i + 1, total, filename: p.filename});
-      const jpeg = await fetchPreview(p.id);
+      let jpeg;
+      try { jpeg = await fetchPreview(p.id); }
+      catch (e) {
+        if (e.kind === 'closed') throw e;
+        journal.append('photo-measured', {photo: p.id, previewHash: 'unavailable', metrics: null, note: e.message});
+        continue;   // the photo is flagged at assessment time; the rest of the job goes on
+      }
       const metrics = runAnalyzer(previews.get(p.id), p.identity.path);
       journal.append('photo-measured', {photo: p.id, previewHash: hash(jpeg), metrics,
         note: metrics ? undefined : 'Local measurement unavailable'});
