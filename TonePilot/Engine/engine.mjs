@@ -2,13 +2,13 @@
 // TonePilot guarded engine. AI only assesses; this process alone sends Lightroom writes,
 // and only after a journal record makes the intent durable.
 //
-// Modes: doctor | inspect | analyze | apply | restore | reconcile | sessions | show | discard
+// Modes: doctor | inspect | analyze | apply | restore | reconcile | sessions | show | discard | select
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
-import {LightroomMCP, readSelection, requireSameSelection, SelectionGuard, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
+import {connectLightroom, readSelection, requireSameSelection, SelectionGuard, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
 import {Journal} from './journal.mjs';
 import {loadSession, deriveStatus, listSessionDirs, sessionView, sessionSummary, writeViews} from './session.mjs';
 import {acquireLock, readLock, updateLock} from './lock.mjs';
@@ -120,7 +120,7 @@ async function doAnalyze(client) {
   const id = 'session-' + new Date().toISOString().replaceAll(/[:.]/g, '-') + '-' + randomUUID().slice(0, 6);
   const dir = path.join(runs, id);
   const journal = Journal.create(dir, 'session-created', {id, config: {look, strength, enabled, ids}, policy,
-    engine: {version: ENGINE_VERSION, bridge: client.serverInfo?.version || null},
+    engine: {version: ENGINE_VERSION, bridge: client.serverInfo?.version || null, bridgeKind: client.kind},
     photos: selected.map(p => ({id: p.id, filename: p.filename}))});
   updateLock(runs, {session: id});
   emit('session', {id, dir});
@@ -317,6 +317,19 @@ async function postCheck(client, journal, p, id) {
   journal.append('post-check', {photo: id, metrics, issues, previewHash});
 }
 
+// Best effort: a named Lightroom snapshot before TonePilot first writes a photo in this
+// session. It never blocks the write; whether it was made is journaled with the photo.
+async function snapshotBefore(client, journal, s, id) {
+  const name = 'TonePilot before ' + s.id.slice(-6);
+  let r;
+  try { r = await client.tool('create_snapshot', {photo_id: id, name}); }
+  catch (e) {
+    if (e.kind === 'closed') throw e;   // nothing was written; stop before the write
+    r = {created: false, error: e.message};
+  }
+  journal.append('photo-snapshot', {photo: id, name, supported: r.supported !== false, created: !!r.created, error: r.error || null});
+}
+
 async function doApply(client) {
   requireConfirm('Applying adjustments');
   const dir = safeDir(opt('session'));
@@ -357,6 +370,7 @@ async function doApply(client) {
         let intended;
         try { intended = withWhiteBalanceMode(validateSettings({origin: p.origin, baseline: cur.values, proposed: p.changes, enabled: s.config.enabled, caps: s.policy.caps}), cur.values); }
         catch (e) { journal.append('photo-stale', {photo: id, reason: 'Blocked by safety limits: ' + e.message}); continue; }
+        if (client.kind === 'tonepilot' && !p.lrSnapshot) await snapshotBefore(client, journal, s, id);
         journal.append('write-intent', {photo: id, preValues: cur.values, preSnapshot: cur.snapshot, intended});
         const r = await performWrite(client, id, cur, intended);
         if (r.unresolved) {
@@ -550,16 +564,25 @@ function doDiscard() {
 async function doInspect(client) {
   const sel = await readSelection(client, MAX_JOB_PHOTOS);
   emit('complete', {state: 'read-only', count: sel.count, limit: MAX_JOB_PHOTOS, truncated: sel.truncated,
-    bridge: client.serverInfo?.version || null, testedBridge: TESTED_BRIDGE_VERSION,
+    bridge: client.serverInfo?.version || null, bridgeKind: client.kind, testedBridge: TESTED_BRIDGE_VERSION,
     photos: sel.photos.map(p => ({id: p.id, filename: p.filename, captureTime: p.captureTime,
       format: (path.extname(p.filename).slice(1) || '').toUpperCase()}))});
+}
+
+// "Show in Lightroom": selects photos; never touches Develop settings. Refused while an
+// engine is working, since a changed selection would stop an apply.
+async function doSelect(client) {
+  const ids = validateIDs(JSON.parse(opt('ids', '[]')));
+  if (client.kind !== 'tonepilot') throw new Error('Showing photos in Lightroom needs the TonePilot Lightroom plug-in');
+  const r = await client.tool('select_photos', {photo_ids: ids});
+  emit('complete', {state: 'read-only', requested: r.requested ?? 0, selected: r.selected ?? 0, missing: r.missing || []});
 }
 
 // ---- Entry ----
 
 const MUTATING = new Set(['analyze', 'apply', 'restore', 'reconcile', 'discard']);
 async function main() {
-  if (!['doctor', 'inspect', 'analyze', 'apply', 'restore', 'reconcile', 'sessions', 'show', 'discard'].includes(mode)) throw new Error('Unknown mode');
+  if (!['doctor', 'inspect', 'analyze', 'apply', 'restore', 'reconcile', 'sessions', 'show', 'discard', 'select'].includes(mode)) throw new Error('Unknown mode');
   if (mode === 'sessions') return doSessions();
   if (mode === 'show') return doShow();
   if (mode === 'doctor') return emit('complete', {state: 'read-only', ...(await runDoctor({live: flag('live')}))});
@@ -568,14 +591,16 @@ async function main() {
     acquireLock(runs, {mode, session});
   }
   if (mode === 'discard') return doDiscard();
-  const client = await new LightroomMCP().connect();
-  if (client.serverInfo?.version && client.serverInfo.version !== TESTED_BRIDGE_VERSION)
+  if (mode === 'select' && readLock(runs)) throw new Error('TonePilot is still working in Lightroom; try again when it finishes.');
+  const client = await connectLightroom();
+  if (client.kind === 'mcp' && client.serverInfo?.version && client.serverInfo.version !== TESTED_BRIDGE_VERSION)
     emit('warning', {message: 'Lightroom bridge ' + client.serverInfo.version + ' has not been verified with TonePilot (tested ' + TESTED_BRIDGE_VERSION + ').'});
   try {
     if (mode === 'inspect') await doInspect(client);
     else if (mode === 'analyze') await doAnalyze(client);
     else if (mode === 'apply') await doApply(client);
     else if (mode === 'restore') await doRestore(client);
+    else if (mode === 'select') await doSelect(client);
     else await doReconcile(client);
   } finally { await client.close(); }
 }

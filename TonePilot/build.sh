@@ -82,6 +82,8 @@ fi
 
 # Every engine module ships; a fixed list once left one out (CI's bundled-engine check caught it).
 cp "$ROOT"/Engine/*.mjs "$RESOURCES/TonePilotEngine/"
+# TonePilot's own Lightroom plug-in, for the app to install later. Nothing is installed here.
+cp -R "$ROOT/LightroomPlugin/TonePilot.lrplugin" "$RESOURCES/"
 
 if [[ "$BUNDLE_BRIDGE" == "1" ]]; then
     # Exact versions and integrity hashes come from the committed lockfile; install

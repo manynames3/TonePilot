@@ -68,6 +68,7 @@ export function foldSession(records, {corrupt = null} = {}) {
         s.applyRuns.push({at: r.at, approved: r.approved, finishedAt: null});
         for (const id of r.approved) if (s.photos[id]) s.photos[id].approved = true;
         break;
+      case 'photo-snapshot': photo(r.photo).lrSnapshot = {name: r.name, supported: r.supported, created: r.created, error: r.error || null}; break;
       case 'photo-stale': Object.assign(photo(r.photo), {state: 'stale', staleReason: r.reason, staleFields: r.fields || []}); break;
       case 'write-intent': {
         const p = photo(r.photo);
@@ -203,6 +204,7 @@ export function photoView(p) {
     after: p.post?.metrics ? {subjectLuma: p.post.metrics.subject?.luma ?? null, highlightClip: p.post.metrics.clip?.channel ?? null} : null,
     capabilities: p.capabilities || null, prior: p.prior,
     staleFields: p.staleFields || [], restoreConflict: p.restoreConflict || null,
+    lightroomSnapshot: p.lrSnapshot?.created ? p.lrSnapshot.name : null,
     write: p.write ? {outcome: p.write.outcome || null, error: p.write.error, mismatched: p.write.mismatched,
       unexpected: p.write.unexpected, reconciled: p.write.reconciled} : null,
     restore: p.restore ? {outcome: p.restore.outcome || null, error: p.restore.error, wrong: p.restore.wrong,

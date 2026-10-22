@@ -57,3 +57,5 @@ jobs:
         run: |
           if command -v node; then echo "A system Node is on PATH" >&2; exit 1; fi
           "$RUNNER_TEMP/TonePilot.app/Contents/Helpers/node" "$RUNNER_TEMP/TonePilot.app/Contents/Resources/TonePilotEngine/engine.mjs" --mode sessions
+      - name: Bundled Lightroom plug-in present
+        run: test -f "$RUNNER_TEMP/TonePilot.app/Contents/Resources/TonePilot.lrplugin/Info.lua"
