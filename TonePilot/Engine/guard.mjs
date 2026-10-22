@@ -1,105 +1,217 @@
+// Write boundary rules. Everything here is deterministic and model-independent:
+// a model recommendation is never permission to exceed these limits.
+import {HARD_CAPS, mired} from './policy.mjs';
+
+// The pilot ceiling. Raise only after the scale gates in docs/VALIDATION.md pass.
+export const MAX_JOB_PHOTOS = 20;
+
+// Keys TonePilot may propose. WhiteBalance is never proposed: Lightroom switches it
+// to Custom by itself when Temperature/Tint change, and restore puts the original back.
+// RAW files use Kelvin Temperature/Tint; JPEG, HEIC and TIFF files use Lightroom's
+// relative IncrementalTemperature/IncrementalTint (−100…+100, 0 = as shot).
 export const ALLOW = Object.freeze({
-  WhiteBalance:'wb',Temperature:'wb',Tint:'wb',Exposure2012:'exposure',
-  Highlights2012:'tone',Shadows2012:'tone',Whites2012:'tone',Blacks2012:'tone'
+  Temperature: 'wb', Tint: 'wb', IncrementalTemperature: 'wb', IncrementalTint: 'wb', Exposure2012: 'exposure',
+  Highlights2012: 'tone', Shadows2012: 'tone', Whites2012: 'tone', Blacks2012: 'tone'
 });
+export const WB_KEYS = Object.freeze(['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint']);
+// Lightroom SDK key -> field name in the bridge's get_photo_metadata developSettings.
 export const FIELD = Object.freeze({
-  WhiteBalance:'whiteBalance',Temperature:'temperature',Tint:'tint',
-  Exposure2012:'exposure',Highlights2012:'highlights',Shadows2012:'shadows',
-  Whites2012:'whites',Blacks2012:'blacks'
+  WhiteBalance: 'whiteBalance', Temperature: 'temperature', Tint: 'tint',
+  IncrementalTemperature: 'incrementalTemperature', IncrementalTint: 'incrementalTint',
+  Exposure2012: 'exposure', Highlights2012: 'highlights', Shadows2012: 'shadows',
+  Whites2012: 'whites', Blacks2012: 'blacks'
 });
-const RANGE={
-  Temperature:[2000,50000,800],
-  Tint:[-150,150,12],
-  Exposure2012:[-5,5,0.75],
-  Highlights2012:[-100,100,25],
-  Shadows2012:[-100,100,25],
-  Whites2012:[-100,100,25],
-  Blacks2012:[-100,100,25]
+export const WB_MODES = Object.freeze(['As Shot', 'Auto', 'Daylight', 'Cloudy', 'Shade',
+  'Tungsten', 'Fluorescent', 'Flash', 'Custom']);
+
+const RANGE = {
+  Temperature: [2000, 50000], Tint: [-150, 150], IncrementalTemperature: [-100, 100], IncrementalTint: [-100, 100], Exposure2012: [-5, 5],
+  Highlights2012: [-100, 100], Shadows2012: [-100, 100], Whites2012: [-100, 100], Blacks2012: [-100, 100]
 };
-export function validateIDs(ids) {
-  if(!Array.isArray(ids)||ids.length<1||ids.length>20)throw new Error('Pilot requires 1–20 IDs');
-  const str=ids.map(String);
-  if(str.some(x=>!/^[0-9]+$/.test(x))||new Set(str).size!==str.length)
-    throw new Error('Invalid or duplicate photo ID');
+// Read-back tolerance: Lightroom stores some values as float32.
+const TOLERANCE = {Temperature: 1.5, Tint: 0.6, IncrementalTemperature: 0.6, IncrementalTint: 0.6, Exposure2012: 0.006,
+  Highlights2012: 0.6, Shadows2012: 0.6, Whites2012: 0.6, Blacks2012: 0.6};
+
+export function validateIDs(ids, max = MAX_JOB_PHOTOS) {
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > max) throw new Error('A job needs 1–' + max + ' photos');
+  const str = ids.map(String);
+  if (str.some(x => !/^[0-9]+$/.test(x)) || new Set(str).size !== str.length) throw new Error('Invalid or duplicate photo ID');
   return str;
 }
-export function validateSettings(current,proposed,enabled,confidence) {
-  if(!current||typeof current!=='object')throw new Error('Missing Develop baseline');
-  if(!proposed||typeof proposed!=='object'||Array.isArray(proposed))throw new Error('Invalid proposed settings');
-  if(!Number.isFinite(confidence)||confidence<0||confidence>1)throw new Error('Invalid confidence');
-  if(confidence<0.8)throw new Error('Low-confidence recommendation must be flagged, not applied');
-  const keys=Object.keys(proposed);
-  if(keys.length>8)throw new Error('Too many adjustments');
-  const updates={};
-  for(const key of keys) {
-    if(!Object.hasOwn(ALLOW,key))throw new Error('Setting is not allowlisted: '+key);
-    if(!enabled[ALLOW[key]])throw new Error('Adjustment is disabled: '+key);
-    const old=current[key], next=proposed[key];
-    if(key==='WhiteBalance'){
-      if(next!=='Custom')throw new Error('Only Custom WB is allowed when setting WhiteBalance');
-      if(!['Custom','As Shot','Auto','Daylight','Cloudy','Shade','Tungsten','Fluorescent','Flash'].includes(old))
-        throw new Error('Unknown baseline white balance state');
-      updates[key]=next;
-      continue;
-    }
-    if(typeof old!=='number'||!Number.isFinite(old))throw new Error('Baseline setting unavailable: '+key);
-    if(typeof next!=='number'||!Number.isFinite(next))throw new Error('Setting must be finite: '+key);
-    const [min,max,maxDelta]=RANGE[key];
-    if(next<min||next>max||Math.abs(next-old)>maxDelta+0.0001)
-      throw new Error('Out-of-range or excessive change: '+key);
-    updates[key]=next;
+
+// Lightroom's own slider granularity; writing finer values only invites read-back mismatches.
+export function roundSetting(key, value) {
+  if (key === 'Exposure2012') return Math.round(value * 100) / 100;
+  return Math.round(value);
+}
+
+function delta(key, from, to) {
+  return key === 'Temperature' ? Math.abs(mired(to) - mired(from)) : Math.abs(to - from);
+}
+function capFor(key, caps) {
+  if (key === 'Temperature') return caps.TemperatureMired;
+  if (key === 'IncrementalTint') return caps.Tint;
+  return caps[key];
+}
+
+// origin: the photo's values before ANY TonePilot session touched them (see lineage.mjs).
+// baseline: the values at the start of this session. Both limits apply.
+export function validateSettings({origin, baseline, proposed, enabled, caps}) {
+  if (!baseline || typeof baseline !== 'object') throw new Error('Missing Develop baseline');
+  if (!proposed || typeof proposed !== 'object' || Array.isArray(proposed)) throw new Error('Invalid proposed settings');
+  const keys = Object.keys(proposed);
+  if (!keys.length) throw new Error('Empty adjustment');
+  const updates = {};
+  for (const key of keys) {
+    if (!Object.hasOwn(ALLOW, key)) throw new Error('Setting is not allowlisted: ' + key);
+    if (!enabled[ALLOW[key]]) throw new Error('Adjustment is disabled: ' + key);
+    const old = baseline[key], from = origin?.[key] ?? old, next = proposed[key];
+    if (typeof old !== 'number' || !Number.isFinite(old)) throw new Error('Baseline setting unavailable: ' + key);
+    if (typeof from !== 'number' || !Number.isFinite(from)) throw new Error('Origin setting unavailable: ' + key);
+    if (typeof next !== 'number' || !Number.isFinite(next)) throw new Error('Setting must be finite: ' + key);
+    const [min, max] = RANGE[key];
+    if (next < min || next > max) throw new Error('Out-of-range value: ' + key);
+    const limit = Math.min(capFor(key, caps), capFor(key, HARD_CAPS)) + 1e-6;
+    if (delta(key, old, next) > limit) throw new Error('Excessive change in one session: ' + key);
+    if (delta(key, from, next) > limit) throw new Error('Cumulative TonePilot change limit exceeded: ' + key);
+    if (valuesEqual(key, old, next)) throw new Error('No-op adjustment: ' + key);
+    updates[key] = next;
   }
-  // Changing white balance mode without temperature/tint is allowed but not valuable:
-  if(Object.hasOwn(updates,'WhiteBalance')&&!('Temperature'in updates||'Tint'in updates))
-    throw new Error('Changing WB mode without a color adjustment is not permitted');
   return updates;
 }
+
+export function valuesEqual(key, a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= (TOLERANCE[key] ?? 1e-4);
+  return a === b;
+}
+
 export function developmentView(metadata) {
-  if(!metadata?.developSettings||typeof metadata.developSettings!=='object')
+  if (!metadata?.developSettings || typeof metadata.developSettings !== 'object')
     throw new Error('Lightroom did not provide Develop settings');
-  const record={};
-  for(const [key,name] of Object.entries(FIELD)){
-    const x=metadata.developSettings[name];
-    if(typeof x==='number'&&Number.isFinite(x)||typeof x==='string')record[key]=x;
+  const record = {};
+  for (const [key, name] of Object.entries(FIELD)) {
+    const x = metadata.developSettings[name];
+    if ((typeof x === 'number' && Number.isFinite(x)) || typeof x === 'string') record[key] = x;
   }
   return record;
 }
-export function compareCurrent(expected,current,keys) {
-  for(const key of keys){
-    if(!(key in expected)||!(key in current))throw new Error('Develop field unavailable: '+key);
-    if(expected[key]!==current[key]&&!(
-      typeof expected[key]==='number'&&typeof current[key]==='number'&&
-      Math.abs(expected[key]-current[key])<=0.0001
-    ))throw new Error('Develop value changed outside TonePilot: '+key);
-  }
+
+// Catalog identity of a photo. Local IDs are per catalog, so the source path and
+// filename confirm the same catalog is open; virtual copies share a path but not an ID.
+export function identityOf(id, metadata) {
+  return {id: String(id), path: String(metadata.path || ''), filename: String(metadata.filename || ''),
+    fileFormat: String(metadata.fileFormat || ''), captureTime: String(metadata.dateTimeOriginal || '')};
 }
-export function baselineRestore(baseline,updates) {
-  const keys=Object.keys(updates);
-  const restore={};
-  for(const key of keys){
-    if(!(key in baseline))throw new Error('Missing original value for '+key);
-    restore[key]=baseline[key];
-  }
-  return restore;
+export function sameIdentity(a, b) {
+  return a.id === b.id && a.path === b.path && a.filename === b.filename &&
+    (!a.fileFormat || !b.fileFormat || a.fileFormat === b.fileFormat);
 }
 
-
-// Independent post-write check of all Develop controls exposed by Lightroom metadata.
-// The SDK may omit some controls; this is not a full catalog-level verification.
-function stable(value){
-  if(Array.isArray(value))return value.map(stable);
-  if(value&&typeof value==='object'){
-    return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))
-      .map(([k,v])=>[k,stable(v)]));
+function stable(value) {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, stable(v)]));
   }
   return value;
 }
-export function assertUntouchedDevelop(before,after,updatedKeys){
-  const allowed=new Set(updatedKeys.map(key=>FIELD[key]));
-  if(updatedKeys.includes('Temperature')||updatedKeys.includes('Tint'))allowed.add('whiteBalance');
-  for(const key of new Set([...Object.keys(before||{}),...Object.keys(after||{})])){
-    if(allowed.has(key))continue;
-    if(JSON.stringify(stable(before?.[key]))!==JSON.stringify(stable(after?.[key])))
-      throw new Error('Unexpected Develop change outside approved controls: '+key);
+// Bridge-exposed Develop fields that differ. The bridge exposes ~25 fields; masks, crop,
+// profile, lens and calibration are not visible to any check made through it.
+export function diffSnapshot(before, after) {
+  const changed = [];
+  for (const key of new Set([...Object.keys(before || {}), ...Object.keys(after || {})])) {
+    const a = before?.[key], b = after?.[key];
+    if (typeof a === 'number' && typeof b === 'number') { if (Math.abs(a - b) > 1e-4) changed.push(key); continue; }
+    if (JSON.stringify(stable(a)) !== JSON.stringify(stable(b))) changed.push(key);
   }
+  return changed.sort();
+}
+
+// Fields a write may legitimately change. Setting a white-balance number flips the WB
+// mode to Custom; selecting a WB mode recomputes the white-balance numbers.
+function touchedFields(keys) {
+  const fields = new Set(keys.map(k => FIELD[k]));
+  if (keys.some(k => WB_KEYS.includes(k))) fields.add('whiteBalance');
+  if (keys.includes('WhiteBalance')) for (const k of WB_KEYS) fields.add(FIELD[k]);
+  return fields;
+}
+
+// What a write actually did, judged only from values read back before and after it.
+//   verified    intended values present, nothing else visible changed
+//   not-applied nothing changed
+//   mismatch    something changed, but not exactly as intended (needs review)
+export function classifyWrite({preValues, preSnapshot, intended, afterValues, afterSnapshot}) {
+  const keys = Object.keys(intended);
+  const allowed = touchedFields(keys);
+  const unexpected = diffSnapshot(preSnapshot, afterSnapshot).filter(f => !allowed.has(f));
+  const mismatched = keys.filter(k => !valuesEqual(k, intended[k], afterValues[k]));
+  const unchanged = keys.every(k => valuesEqual(k, preValues[k], afterValues[k])) &&
+    diffSnapshot(preSnapshot, afterSnapshot).length === 0;
+  let outcome = 'mismatch';
+  if (!mismatched.length && !unexpected.length) outcome = 'verified';
+  else if (unchanged) outcome = 'not-applied';
+  return {outcome, mismatched, unexpected};
+}
+
+// Restoring white balance must also put the WB mode back. Writing a number would leave
+// the mode at Custom, so a non-Custom original mode is restored by mode alone and the
+// numbers are then verified. Same for Kelvin (RAW) and relative (JPEG/HEIC) values.
+export function restorePlan(baseline, applied, afterValues) {
+  const keys = Object.keys(applied);
+  const expected = {}, target = {};
+  for (const k of keys) {
+    if (!(k in baseline)) throw new Error('Missing original value for ' + k);
+    expected[k] = afterValues[k];
+  }
+  const wbTouched = keys.some(k => WB_KEYS.includes(k));
+  const wbModeChanged = wbTouched && baseline.WhiteBalance !== undefined && afterValues.WhiteBalance !== baseline.WhiteBalance;
+  if (wbModeChanged) {
+    if (!WB_MODES.includes(baseline.WhiteBalance)) throw new Error('Unknown original white balance mode');
+    expected.WhiteBalance = afterValues.WhiteBalance;
+  }
+  for (const k of keys) {
+    if (wbModeChanged && baseline.WhiteBalance !== 'Custom' && WB_KEYS.includes(k)) continue;
+    target[k] = baseline[k];
+  }
+  const verify = {};
+  for (const k of keys) verify[k] = baseline[k];
+  if (wbModeChanged) {
+    target.WhiteBalance = baseline.WhiteBalance;
+    // Re-selecting the mode recomputes both numbers; both must come back exactly.
+    for (const k of WB_KEYS) if (typeof baseline[k] === 'number') verify[k] = baseline[k];
+  }
+  if (wbTouched && baseline.WhiteBalance !== undefined) verify.WhiteBalance = baseline.WhiteBalance;
+  return {target, expected, verify};
+}
+
+export function matches(expected, values) {
+  return Object.keys(expected).filter(k => !valuesEqual(k, expected[k], values[k]));
+}
+
+export function classifyRestore({plan, preSnapshot, afterValues, afterSnapshot}) {
+  const wrong = matches(plan.verify, afterValues);
+  const allowed = touchedFields([...Object.keys(plan.verify), ...Object.keys(plan.target)]);
+  const unexpected = diffSnapshot(preSnapshot, afterSnapshot).filter(f => !allowed.has(f));
+  if (!wrong.length && !unexpected.length) return {outcome: 'restored', wrong, unexpected};
+  if (!matches(plan.expected, afterValues).length && !diffSnapshot(preSnapshot, afterSnapshot).length)
+    return {outcome: 'not-restored', wrong, unexpected};
+  return {outcome: 'restore-mismatch', wrong, unexpected};
+}
+
+const NON_RAW_WB = 'White balance was left unchanged: for JPEG, HEIC and TIFF files Lightroom stores relative (Incremental) Temperature/Tint, which the installed Lightroom bridge cannot read or write.';
+const NO_INCREMENTAL_WRITE = 'White balance was left unchanged: the Lightroom bridge reports relative (Incremental) Temperature/Tint for this file but does not accept writing them.';
+// writable: Develop keys the bridge's write tool accepts (null when unknown, which is
+// treated as "cannot write" for the relative white-balance keys).
+export function capabilitiesOf(meta, values, writable = null) {
+  const format = String(meta.fileFormat || '').toUpperCase();
+  if (format === 'VIDEO') return {supported: false, reason: 'Video files are not edited by TonePilot.'};
+  const exposure = typeof values.Exposure2012 === 'number';
+  const tone = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'].every(k => typeof values[k] === 'number');
+  if (!exposure && !tone) return {supported: false, reason: 'This photo uses a legacy Lightroom process version. Update it to the current process version in Lightroom first.'};
+  const kelvin = typeof values.Temperature === 'number' && typeof values.Tint === 'number';
+  const relative = typeof values.IncrementalTemperature === 'number' && typeof values.IncrementalTint === 'number';
+  const relativeWritable = !!writable?.has('IncrementalTemperature') && !!writable?.has('IncrementalTint');
+  const wbMode = kelvin ? 'kelvin' : relative && relativeWritable ? 'relative' : null;
+  const wbNote = wbMode ? null : relative ? NO_INCREMENTAL_WRITE
+    : format === 'RAW' || format === 'DNG' ? 'Lightroom did not report numeric white balance for this RAW file.' : NON_RAW_WB;
+  return {supported: true, exposure, tone, wb: !!wbMode, wbMode, format, wbNote};
 }

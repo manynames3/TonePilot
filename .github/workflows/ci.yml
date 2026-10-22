@@ -1,0 +1,56 @@
+# TonePilot CI. Everything here runs against the mock Lightroom bridge or builds into a
+# temporary folder: no catalog, photos, credentials or network beyond these two actions.
+# Never add TonePilot/tests/live/ to CI — those scripts perform real Lightroom writes.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine-tests:
+    name: Engine tests (mock Lightroom)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Run tests
+        run: node --test TonePilot/tests/*.test.mjs
+
+  app-build:
+    name: App and analyzer build
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # The real build script: compiles the app and analyzer, runs the analyzer
+      # self-test, bundles the engine and verifies the ad-hoc signature. The bridge
+      # download is skipped and nothing is installed into ~/Applications.
+      - name: Build TonePilot.app
+        env:
+          TONEPILOT_APP_PATH: ${{ runner.temp }}/TonePilot.app
+          TONEPILOT_BUNDLE_BRIDGE: "0"
+        run: ./TonePilot/build.sh
+      - name: Bundled engine loads every module
+        env:
+          TONEPILOT_RUNS_DIR: ${{ runner.temp }}/runs
+        run: node "$RUNNER_TEMP/TonePilot.app/Contents/Resources/TonePilotEngine/engine.mjs" --mode sessions

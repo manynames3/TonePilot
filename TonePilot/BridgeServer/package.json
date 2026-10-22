@@ -1,0 +1,9 @@
+{
+  "name": "tonepilot-bridge-server",
+  "private": true,
+  "description": "Pinned copy of the third-party Lightroom Classic MCP bridge (MIT, github.com/Automaat/lightroom-mcp) bundled into TonePilot builds.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@mskalski/lightroom-mcp": "0.24.1"
+  }
+}

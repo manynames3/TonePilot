@@ -1,10 +1,8 @@
-# TonePilot v0.3 — Real macOS app screenshots
+# Screenshots — TonePilot 0.5
 
-Captured from the actual SwiftUI application on October 21, 2026. These are **not** AI-generated concept renders.
+Rendered by the real app (its developer snapshot mode) on October 22, 2026.
 
-- **tonepilot-edit.png:** Editorial Studio main workspace, showing an unverified Lightroom selection, illustrative vector look cards and native correction controls.
-- **tonepilot-getting-started.png:** Real in-app help sheet explaining the pilot workflow and plug-in connection.
+- **setup.png** — setup checklist against the real Lightroom Classic 14.5.1 and plug-in 0.24.1 on the development Mac.
+- **review-plan.png**, **recovery-interrupted.png**, **recovery-partly-restored.png** — **synthetic demo sessions** produced by `TonePilot/tests/demo-sessions.mjs`: the real engine run against the mock Lightroom bridge and mock AI. The filenames, values and reasons are invented test fixtures. They are not real photographs and not evidence of editing quality.
 
-No personal photographs, catalog previews, or Lightroom editing results are displayed. The selection was not live-verified in this capture, and TonePilot's cloud-backed AI editing path has not been validated on actual photographs.
-
-As of v0.3.1, the read-only Lightroom selection operation has been verified on five photos. These screenshots predate that successful check and intentionally show connection status as unverified. The look cards and botanical motif are interface illustrations, **not edits to real photographs**.
+The rail lists only those demo sessions; the new-pass screen is not published because it shows the live Lightroom selection.
