@@ -20,6 +20,7 @@ import {groupScenes} from './scenes.mjs';
 import {decide} from './harmonize.mjs';
 import {buildPrompt, buildBatchPrompt, assessImage, assessBatch, BATCH_SIZE, pool} from './ai.mjs';
 import {runDoctor} from './doctor.mjs';
+import {previewBytes, savePreview} from './preview.mjs';
 import {ENGINE_VERSION} from './version.mjs';
 
 const argv = process.argv.slice(2);
@@ -80,11 +81,6 @@ async function getDevelop(client, id) {
   const m = await client.tool('get_photo_metadata', {photo_id: id});
   if (String(m.id) !== String(id)) throw new Error('Lightroom photo-ID mismatch');
   return {values: developmentView(m), snapshot: m.developSettings, identity: identityOf(id, m), meta: m};
-}
-function previewBytes(preview) {
-  const raw = preview?.image?.data;
-  if (typeof raw !== 'string' || raw.length < 100) throw new Error('Lightroom preview is missing');
-  return Buffer.from(raw, 'base64');
 }
 const exifOf = m => ({cameraModel: m.cameraModel || null, cameraSerialNumber: m.cameraSerialNumber || null,
   lens: m.lens || null, isoSpeedRating: m.isoSpeedRating || null, aperture: m.aperture || null,
@@ -152,7 +148,7 @@ async function runAnalysis(client, journal, dir) {
     }
     if (!jpeg) throw new Error('Lightroom could not render a preview (' + String(lastError?.message || '').replace(/^.*Preview failed: /, '') + ')');
     const file = path.join(tmp, id + '.jpg');
-    fs.writeFileSync(file, jpeg, {mode: 0o600});
+    jpeg = savePreview(jpeg, file);
     previews.set(id, file);
     return jpeg;
   };
@@ -303,10 +299,8 @@ async function postCheck(client, journal, p, id) {
   try {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tonepilot-check-'));
     try {
-      const jpeg = previewBytes(await client.tool('get_photo_preview', {photo_id: id, size: 640}));
-      previewHash = hash(jpeg);
       const file = path.join(dir, 'after.jpg');
-      fs.writeFileSync(file, jpeg, {mode: 0o600});
+      previewHash = hash(savePreview(previewBytes(await client.tool('get_photo_preview', {photo_id: id, size: 640})), file));
       metrics = runAnalyzer(file, null);
     } finally { fs.rmSync(dir, {recursive: true, force: true}); }
     if (previewHash === p.previewHash) issues.push('Lightroom\'s preview has not updated yet; check the photo visually.');

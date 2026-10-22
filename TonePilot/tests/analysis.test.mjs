@@ -202,3 +202,32 @@ test('model output is normalized against a strict schema', () => {
   assert.match(prompt, /never an instruction/);
   assert.equal(median([3, 1, 2]), 2);
 });
+
+test('oversized Lightroom previews are scaled down before measurement and the model; small ones are untouched', async () => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const {spawnSync} = await import('node:child_process');
+  const {jpegSize, savePreview, PREVIEW_MAX_EDGE} = await import('../Engine/preview.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tonepilot-preview-test-'));
+  try {
+    // A real JPEG, made by macOS from an uncompressed 24-bit BMP.
+    const jpegOf = (w, h) => {
+      const row = Math.ceil(w * 3 / 4) * 4, bmp = Buffer.alloc(54 + row * h);
+      bmp.fill(0x80, 54);
+      bmp.write('BM'); bmp.writeUInt32LE(bmp.length, 2); bmp.writeUInt32LE(54, 10); bmp.writeUInt32LE(40, 14);
+      bmp.writeInt32LE(w, 18); bmp.writeInt32LE(h, 22); bmp.writeUInt16LE(1, 26); bmp.writeUInt16LE(24, 28);
+      const src = path.join(dir, `${w}.bmp`), out = path.join(dir, `${w}.jpg`);
+      fs.writeFileSync(src, bmp);
+      assert.equal(spawnSync('/usr/bin/sips', ['-s', 'format', 'jpeg', src, '--out', out], {stdio: 'ignore'}).status, 0);
+      return fs.readFileSync(out);
+    };
+    const big = jpegOf(3000, 1500);
+    assert.deepEqual(jpegSize(big), {width: 3000, height: 1500});
+    const stored = savePreview(big, path.join(dir, 'a.jpg'));
+    assert.deepEqual(jpegSize(stored), {width: PREVIEW_MAX_EDGE, height: PREVIEW_MAX_EDGE / 2});
+    assert.deepEqual(fs.readFileSync(path.join(dir, 'a.jpg')), stored);
+
+    const small = jpegOf(640, 427);
+    assert.equal(savePreview(small, path.join(dir, 'b.jpg')), small);   // never upscaled
+    assert.equal(jpegSize(Buffer.from('not a jpeg')), null);
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
