@@ -72,9 +72,8 @@ if /usr/bin/swift "$ROOT/Source/IconMaker.swift" >/dev/null; then
     /usr/bin/iconutil -c icns "$iconset" -o "$RESOURCES/TonePilot.icns"
 fi
 
-for f in engine guard journal session lineage lock policy scenes harmonize ai lightroom doctor version; do
-    cp "$ROOT/Engine/$f.mjs" "$RESOURCES/TonePilotEngine/"
-done
+# Every engine module ships; a fixed list once left one out (CI's bundled-engine check caught it).
+cp "$ROOT"/Engine/*.mjs "$RESOURCES/TonePilotEngine/"
 
 if [[ "$BUNDLE_BRIDGE" == "1" ]]; then
     # Exact versions and integrity hashes come from the committed lockfile; install
