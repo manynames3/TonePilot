@@ -5,7 +5,7 @@
 For portrait, family, wedding and event photographers who already know how to edit and are tired of fixing the same exposure and white-balance drift frame after frame. You select photos in Lightroom; TonePilot groups them into lighting scenes, proposes small corrections that make each scene consistent, and writes only the edits you approve. Lightroom stays your editor.
 
 > [!IMPORTANT]
-> **Developer preview · v0.5.0 · not for client work yet.** The safety and recovery engine passes 67 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. On real Lightroom, TonePilot has analyzed five HEIC photos and written three, each verified by read-back. **White balance on JPEG/HEIC needs a bridge update; no RAW file and no photographic-quality benchmark has been run.** Time savings are unmeasured. See [what has actually been measured](docs/EVIDENCE.md).
+> **Developer preview · v0.5.0 · not for client work yet.** The safety and recovery engine passes 78 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. In real Lightroom, TonePilot has made 15 Develop writes (12 RAW, 3 HEIC), all verified by read-back, including white-balance corrections on RAW. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** See the [changelog](CHANGELOG.md). Time savings are unmeasured. See [what has actually been measured](docs/EVIDENCE.md).
 
 <table>
 <tr>
@@ -70,8 +70,9 @@ TonePilot's **Setup** screen checks all of the above and tells you how to fix an
 |---|---|
 | Durable sessions, recovery, verified writes, safe restore | Implemented; tested against a simulated Lightroom with fault injection |
 | Real Lightroom read path, measurements, scene grouping, planning | Verified read-only on 5 HEIC photos |
-| Real Develop writes and restore | **Not yet run** — protocol ready ([gate G1](docs/VALIDATION.md)) |
-| RAW files, white balance on real data, multi-scene galleries | **Not yet run** |
+| Real Develop writes | 15 in the owner's catalog, 15/15 verified; restore not yet exercised; test-catalog protocol ([gate G1](docs/VALIDATION.md)) not run |
+| White balance | Skin-tone verdict + measured colour-cast correction; verified writes on RAW; HEIC/JPEG need the TonePilot edition of the bridge |
+| Multi-scene galleries | **Not yet run** |
 | Photographic quality, time saved | **Unmeasured** — blind benchmark harness ready ([gate G3](docs/VALIDATION.md)) |
 | Galleries over 20 photos | Not supported until scale gates pass |
 | Model consistency | Same photos analyzed twice agreed on 4 of 5 decisions |

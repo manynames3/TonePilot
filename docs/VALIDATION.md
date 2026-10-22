@@ -4,7 +4,7 @@ TonePilot moves forward only when a gate passes with real evidence. Status as of
 
 | Gate | What it proves | Status |
 |---|---|---|
-| G0 | Safety logic under failure, simulated | **Passed** — 67 automated tests, mutation-checked |
+| G0 | Safety logic under failure, simulated | **Passed** — 78 automated tests, mutation-checked |
 | G1 | Real writes, verification and restore on a disposable catalog | **Not run** — needs the photographer's go-ahead and a sandbox catalog |
 | G2 | Real read-only analysis on representative RAW galleries | **Partial** — 5 HEIC photos, one scene; no RAW yet |
 | G3 | Photographic quality, blind | **Not run** — needs ≥ 100 held-out photos and independent raters |

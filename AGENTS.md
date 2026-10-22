@@ -18,7 +18,7 @@ TonePilot is a **Lightroom Classic companion**. It is not a RAW editor, catalog 
 ## Truthfulness
 
 - Keep [docs/EVIDENCE.md](docs/EVIDENCE.md) the source of every claim, with real / simulated / not-measured kept apart.
-- As of v0.5.0: real read-only analysis on 5 HEIC photos; 3 real writes made by the owner, all verified (restore not yet exercised on real photos); no RAW data; no quality benchmark; no time-savings evidence; model confidence uncalibrated.
+- As of v0.5.0: real read-only analysis on 5 HEIC photos; 15 real writes made by the owner (12 RAW, 3 HEIC), all verified, 6 of them white balance on RAW (restore not yet exercised on real photos); no RAW data; no quality benchmark; no time-savings evidence; model confidence uncalibrated.
 - White balance on JPEG/HEIC needs a bridge that accepts `IncrementalTemperature`/`IncrementalTint`; stock bridge 0.24.1 does not. Never modify the third-party bridge or plug-in without the owner's explicit approval.
 - Public screenshots use synthetic demo sessions (`tests/demo-sessions.mjs`), never client photos, filenames or AI descriptions of them.
 

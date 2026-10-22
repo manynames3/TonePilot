@@ -41,9 +41,22 @@ Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced
 | Restore on real photos | **Not yet exercised** |
 | White balance | **Not written**: the installed bridge cannot read or write Lightroom's relative white balance (`IncrementalTemperature/Tint`) used by HEIC/JPEG, confirmed from its published write schema |
 
+## Real writes to date (owner-run, October 22, 2026)
+
+| | Result |
+|---|---|
+| Develop writes | 15 (12 RAW, 3 HEIC) across 13 journaled sessions |
+| Verified by read-back | **15/15** |
+| White-balance writes | 6, all on RAW (e.g. 4450 → 4820 K, tint 13 → 16), all verified |
+| Restores on real photos | 0 — not yet exercised |
+
+**Colour-cast measurement** (read-only, analyzer on Lightroom previews): white surfaces on 4D6A8895 measure a* +2.6, b* −1.1 (white shirts, 17% of the frame); on 4D6A8913 a* +3.4, b* −2.7. With the colour-science conversion the plan for 4D6A8895 is Tint 14 → 8 (Balanced) / 6 (Stronger); before this change the AI called the skin natural and nothing was proposed. One real calibration point (tint −2 → white a* −0.27) is within a factor of ~2 of the theoretical slope (~0.30 a* per tint step); more paired before/after measurements are needed.
+
+**Lightroom preview reliability:** "error loading thumb" occurred on several real requests minutes apart for photos that previewed fine earlier; retries now absorb it.
+
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-67 tests, all passing, ~17 s. No photos and no catalog are touched.
+78 tests, all passing, ~18 s. No photos and no catalog are touched.
 
 | Suite | Covers |
 |---|---|
@@ -51,7 +64,8 @@ Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced
 | `recovery.test.mjs` (16) | Engine SIGKILLed after a write lands / before it lands; settle window; interrupted restore; manual edits after apply; bridge exits mid-apply; timeouts that land late / never; plug-in errors; rounding and side-effect mismatches; selection change mid-apply; app quit mid-apply; concurrent engines; torn and damaged journals; stopped-and-resumed analysis; AI outage fails resumably and retries |
 | `analysis.test.mjs` (13) | Capture-time parsing across locales; scene splits; reframing vs real light change; tiny faces and small previews; scene exposure matching; outlier frames; strength scaling and thresholds; highlight protection; WB drift sync; mixed light; looks incl. preserved low-key/silhouette and creative colour; skin-hue warnings; schema normalization |
 | `selection.test.mjs` (4) | Apply-time selection interlock: full reads O(n/N) (exact read counts asserted), a same-size swap stops the run within N photos and never writes outside the authorization, the rotating sample catches swaps early, reselecting resumes without double writes |
-| `whitebalance.test.mjs` (8) | Relative (JPEG/HEIC) white balance proposed, written, verified and restored to As Shot; honest skip when the bridge can't write or can't read it; scene blending with outliers; model prompt; exposure-and-white-balance-only scope; explanations that name the look |
+| `whitebalance.test.mjs` (16) | Relative (JPEG/HEIC) white balance proposed, written, verified and restored to As Shot; honest skip when the bridge can't write or can't read it; scene blending; model prompt; exposure-and-WB-only scope; looks named in explanations; skin-tone verdicts in Kelvin and relative units; colour-science slider directions; measured casts corrected when the AI calls skin natural; measurement sets the amount when it agrees with the AI; deliberate warm light left alone |
+| `bridgepatch.test.mjs` (2) | Bridge patch adds exactly two keys with backups, idempotent, refuses other versions |
 | `bridge.test.mjs` (7) | Read-only selection, empty selection, over-limit selection, disconnected plug-in, unverified bridge version, pinned bridge, doctor completeness |
 | `benchmark.test.mjs` (7) | Wilson intervals, blind-scoring requirement, small samples never "validated", interval-based gates, per-skin-group and lighting breakdowns, calibration threshold, repeatability |
 
