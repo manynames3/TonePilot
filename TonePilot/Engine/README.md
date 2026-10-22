@@ -3,8 +3,9 @@
 A Node.js process the Mac app launches for every operation. It is the only component that talks to Lightroom, and the only one that can write.
 
 ```text
-Mac app ──args──▶ engine.mjs ──MCP/stdio──▶ Lightroom bridge 0.24.1 ──TCP──▶ Lightroom MCP plug-in ──SDK──▶ catalog
-   ▲                 │
+Mac app ──args──▶ engine.mjs ──TCP (localhost, token)──▶ TonePilot plug-in ──SDK──▶ catalog
+   ▲                 │   or, when that plug-in isn't running:
+   │                 ├──MCP/stdio──▶ Lightroom bridge 0.24.1 ──TCP──▶ Lightroom MCP plug-in ──SDK──▶ catalog
    └──JSONL events───┤── journal.jsonl (append-only, fsync)  ← single source of truth
                      ├── TonePilotAnalyzer (on-device faces, clipping, EXIF)
                      └── Codex CLI (read-only image assessment, strict JSON schema, no tools)
@@ -22,6 +23,7 @@ Mac app ──args──▶ engine.mjs ──MCP/stdio──▶ Lightroom bridge
 | `reconcile --session dir` | read (+journal) | yes | Settle writes whose outcome was never recorded |
 | `sessions`, `show --session dir` | none | no | Views rebuilt from journals |
 | `discard --session dir --confirm` | none | yes | Hide a plan that changed nothing |
+| `select --ids …` | selection only | no (refused while locked) | "Show in Lightroom"; needs TonePilot's plug-in |
 
 ## Modules
 
@@ -37,7 +39,8 @@ Mac app ──args──▶ engine.mjs ──MCP/stdio──▶ Lightroom bridge
 | `scenes.mjs` | Lighting-scene segmentation and reference frames |
 | `harmonize.mjs` | Scene-consistent, policy-bounded decisions |
 | `ai.mjs` | Prompt, strict output schema, Codex subprocess, bounded pool |
-| `lightroom.mjs` | MCP client; pinned/bundled bridge; typed errors; apply-time selection interlock (`SelectionGuard`) |
+| `lightroom.mjs` | Client factory (`connectLightroom`: TonePilot's plug-in if its `bridge.json` exists and it answers, else MCP); MCP client; pinned/bundled bridge; typed errors; apply-time selection interlock (`SelectionGuard`) |
+| `tonepilot-bridge.mjs` | Client for TonePilot's own plug-in (`TonePilot/LightroomPlugin`): two localhost ports, newline-delimited JSON, token per request |
 | `doctor.mjs` | Diagnostics |
 | `Analyzer.swift` | On-device measurements of Lightroom-rendered previews |
 
@@ -52,11 +55,13 @@ Mac app ──args──▶ engine.mjs ──MCP/stdio──▶ Lightroom bridge
 7. **Status is derived, never stored.** "Restored" means every photo with a TonePilot change is restored.
 8. **Selection interlock without O(n²) reads.** Apply reads the full selection at the start, every 25 photos and before the last; other photos cost one sampled row. A changed selection stops the run within 25 photos, usually sooner. Per-photo identity and staleness checks — not the interlock — are what keep writes on the right photos.
 
-Limits of the bridge: it exposes ~25 Develop fields. Masks, crop, profile, lens and calibration cannot be checked through it; TonePilot never sends them.
+Limits of the bridges: the MCP bridge exposes ~25 Develop fields, so masks, crop, profile, lens and calibration cannot be checked through it. TonePilot's plug-in also reports every scalar Develop value (`developSettings.full`), which staleness and read-back checks compare whenever both snapshots have it; non-scalar settings such as mask geometry are still not compared. TonePilot never sends any of them.
+
+With TonePilot's plug-in, `apply` asks Lightroom for a Develop snapshot named "TonePilot before <session suffix>" right before each photo's first write in a session (journaled as `photo-snapshot`). It is best effort: an unsupported or failed snapshot never blocks the write.
 
 ## Journal records
 
-`session-created`, `photo-baseline`, `photo-unsupported`, `photo-measured`, `scenes`, `photo-assessed`, `photo-proposed`, `plan-ready`, `analysis-failed`, `analysis-resumed`, `apply-started`, `photo-stale`, `write-intent`, `write-result`, `post-check`, `apply-finished`, `restore-started`, `restore-conflict`, `restore-intent`, `restore-result`, `restore-finished`, `session-error`, `discarded`. Unknown types are ignored (forward compatible).
+`session-created`, `photo-baseline`, `photo-unsupported`, `photo-measured`, `scenes`, `photo-assessed`, `photo-proposed`, `plan-ready`, `analysis-failed`, `analysis-resumed`, `apply-started`, `photo-stale`, `photo-snapshot`, `write-intent`, `write-result`, `post-check`, `apply-finished`, `restore-started`, `restore-conflict`, `restore-intent`, `restore-result`, `restore-finished`, `session-error`, `discarded`. Unknown types are ignored (forward compatible).
 
 Photo states: `pending → baselined → proposed | skipped | flagged | unsupported → (stale) | writing → applied | apply-mismatch | apply-failed → restoring → restored | restore-mismatch`.
 
@@ -69,4 +74,4 @@ Photo states: `pending → baselined → proposed | skipped | flagged | unsuppor
 
 ## Environment
 
-`TONEPILOT_RUNS_DIR`, `TONEPILOT_CODEX`, `TONEPILOT_ANALYZER`, `TONEPILOT_MCP_SERVER` (bundled bridge), `TONEPILOT_PARENT_PID`, `TONEPILOT_SETTLE_MS`, `TONEPILOT_AI_CONCURRENCY` (1–4, default 2), `TONEPILOT_WRITE_TIMEOUT_MS`, `TONEPILOT_SELECTION_FULL_EVERY` (default 25). Tests also use `TONEPILOT_NPX` / `TONEPILOT_MCP_ARGS` to substitute the mock bridge.
+`TONEPILOT_RUNS_DIR`, `TONEPILOT_CODEX`, `TONEPILOT_ANALYZER`, `TONEPILOT_MCP_SERVER` (bundled bridge), `TONEPILOT_PARENT_PID`, `TONEPILOT_SETTLE_MS`, `TONEPILOT_AI_CONCURRENCY` (1–4, default 2), `TONEPILOT_WRITE_TIMEOUT_MS`, `TONEPILOT_SELECTION_FULL_EVERY` (default 25), `TONEPILOT_BRIDGE_FILE` (default `~/Library/Application Support/TonePilot/bridge.json`). Tests also use `TONEPILOT_NPX` / `TONEPILOT_MCP_ARGS` to substitute the mock MCP bridge and point `TONEPILOT_BRIDGE_FILE` at the mock plug-in (or at nothing).

@@ -1,17 +1,38 @@
 // Shared harness: an isolated runs folder, a mock Lightroom state file and helpers
-// to run the real engine against them. Never touches a real catalog.
-import {mkdtempSync, readFileSync, writeFileSync, rmSync, chmodSync, readdirSync} from 'node:fs';
+// to run the real engine against them. Never touches a real catalog: the bridge file the
+// engine looks for is always inside the test's temp folder.
+import {mkdtempSync, readFileSync, writeFileSync, rmSync, chmodSync, readdirSync, existsSync} from 'node:fs';
 import {join, resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {spawnSync, spawn} from 'node:child_process';
+import {test} from 'node:test';
 
 const folder = dirname(fileURLToPath(import.meta.url));
 export const ENGINE = resolve(folder, '../Engine/engine.mjs');
 const MOCK_MCP = resolve(folder, 'mock-lightroom.mjs');
+const MOCK_PLUGIN = resolve(folder, 'mock-plugin.mjs');
 const MOCK_MODEL = resolve(folder, 'mock-model.mjs');
 const MOCK_ANALYZER = resolve(folder, 'mock-analyzer.mjs');
 for (const f of [MOCK_MODEL, MOCK_ANALYZER, MOCK_MCP]) chmodSync(f, 0o755);
+
+// The Lightroom bridges the workflow and recovery suites run against: the third-party MCP
+// bridge, and TonePilot's own plug-in.
+const BRIDGES = ['mcp', 'tonepilot'];
+// Registers one test per bridge; fn receives the bridge name to pass to setup().
+export function eachBridge(name, fn) {
+  for (const bridge of BRIDGES) test(name + ' [' + bridge + ']', () => fn(bridge));
+}
+
+const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+// Starts the fake TonePilot plug-in and waits (synchronously) for its bridge file.
+function startPlugin(env) {
+  const server = spawn(process.execPath, [MOCK_PLUGIN], {env, stdio: ['pipe', 'ignore', 'inherit']});
+  for (let i = 0; i < 250 && !existsSync(env.TONEPILOT_BRIDGE_FILE); i++) pause(20);
+  if (!existsSync(env.TONEPILOT_BRIDGE_FILE)) { server.kill(); throw new Error('mock plug-in did not start'); }
+  return server;
+}
 
 export function rawPhoto(filename, overrides = {}) {
   return {
@@ -24,7 +45,7 @@ export function rawPhoto(filename, overrides = {}) {
   };
 }
 
-export function setup({photos, selected, faults = {}, ai = {}, extra = {}} = {}) {
+export function setup({photos, selected, faults = {}, ai = {}, extra = {}, bridge = 'mcp'} = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'tonepilot-test-'));
   const state = join(temp, 'state.json');
   const runs = join(temp, 'runs');
@@ -32,7 +53,9 @@ export function setup({photos, selected, faults = {}, ai = {}, extra = {}} = {})
   writeFileSync(state, JSON.stringify({selected: selected || Object.keys(photos), writes: [], photos, faults, ai, ...extra}));
   const env = {...process.env, TONEPILOT_NPX: process.execPath, TONEPILOT_MCP_ARGS: JSON.stringify([MOCK_MCP]),
     TONEPILOT_MOCK_STATE: state, TONEPILOT_CODEX: MOCK_MODEL, TONEPILOT_ANALYZER: MOCK_ANALYZER,
-    TONEPILOT_RUNS_DIR: runs, TONEPILOT_SETTLE_MS: '0', TONEPILOT_WRITE_TIMEOUT_MS: '800', TONEPILOT_PREVIEW_RETRY_MS: '0'};
+    TONEPILOT_RUNS_DIR: runs, TONEPILOT_SETTLE_MS: '0', TONEPILOT_WRITE_TIMEOUT_MS: '800', TONEPILOT_PREVIEW_RETRY_MS: '0',
+    TONEPILOT_BRIDGE_FILE: join(temp, 'bridge.json')};
+  const plugin = bridge === 'tonepilot' ? startPlugin(env) : null;
   const parse = out => out.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return {type: 'raw', line: l}; } });
   const run = (args, envExtra = {}) => {
     const r = spawnSync(process.execPath, [ENGINE, ...args], {env: {...env, ...envExtra}, encoding: 'utf8', timeout: 30000});
@@ -51,6 +74,6 @@ export function setup({photos, selected, faults = {}, ai = {}, extra = {}} = {})
     return r.complete.dir;
   };
   const sessions = () => readdirSync(runs).filter(n => n.startsWith('session-'));
-  const cleanup = () => rmSync(temp, {recursive: true, force: true});
-  return {temp, state, runs, env, run, start, get, set, show, journal, analyze, sessions, cleanup};
+  const cleanup = () => { plugin?.kill(); rmSync(temp, {recursive: true, force: true}); };
+  return {temp, state, runs, env, bridge, run, start, get, set, show, journal, analyze, sessions, cleanup};
 }

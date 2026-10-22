@@ -5,6 +5,7 @@
 | `Source/` | SwiftUI app: `TonePilotApp` (shell, sidebar, progress), `StartViews` (setup, new pass), `SessionViews` (review, apply, recovery), `AppModel`, `Engine` (process runner, paths), `Models`, `Components`, `Snapshot` (developer screenshots) |
 | `Engine/` | Guarded Node.js engine and the Swift analyzer — see [Engine/README.md](Engine/README.md) |
 | `BridgeServer/` | Pinned lockfile for the bundled third-party Lightroom bridge |
+| `LightroomPlugin/` | TonePilot's own Lightroom Classic plug-in (not yet verified inside Lightroom) — see [LightroomPlugin/README.md](LightroomPlugin/README.md); bundled into the app, never auto-installed |
 | `tests/` | Automated suites (mock Lightroom, mock AI, fault injection), `demo-sessions.mjs`, and `live/sandbox-cycle.mjs` (real writes, sandbox only) |
 | `Benchmarks/` | Evaluation, repeatability and scale tools |
 

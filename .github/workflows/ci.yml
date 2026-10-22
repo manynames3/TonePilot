@@ -54,3 +54,5 @@ jobs:
         env:
           TONEPILOT_RUNS_DIR: ${{ runner.temp }}/runs
         run: node "$RUNNER_TEMP/TonePilot.app/Contents/Resources/TonePilotEngine/engine.mjs" --mode sessions
+      - name: Bundled Lightroom plug-in present
+        run: test -f "$RUNNER_TEMP/TonePilot.app/Contents/Resources/TonePilot.lrplugin/Info.lua"

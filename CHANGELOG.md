@@ -2,6 +2,12 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
+## Unreleased
+
+- **TonePilot's own Lightroom plug-in** (`TonePilot/LightroomPlugin`, not yet verified inside Lightroom). A localhost-only, token-protected socket with eight actions and one Develop write action limited to TonePilot's ten keys, recorded in History as "TonePilot first pass". It reports every scalar Develop value, so staleness and read-back checks also see crop, profile, lens and other changes the MCP bridge cannot. The engine uses it when it is running and otherwise falls back to the Lightroom MCP bridge unchanged.
+- **Lightroom snapshot before the first write** to each photo ("TonePilot before …"), best effort and journaled, with TonePilot's plug-in.
+- **`select` engine mode** for a future "Show in Lightroom" button.
+
 ## 0.5.0 — developer preview (October 22, 2026)
 
 The 0.4 audit ([docs/AUDIT.md](docs/AUDIT.md)) found that recovery could fail silently, repeated runs could compound edits, and editing decisions were single-photo AI guesses. 0.5 rebuilds the engine, the editing logic and the app.

@@ -56,17 +56,18 @@ Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced
 
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-78 tests, all passing, ~18 s. No photos and no catalog are touched.
+115 tests, all passing, ~17 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|
-| `engine.test.mjs` (12) | Guard limits incl. cumulative and mired caps; read-back classification; WB-mode restore; format capabilities; analyze-never-writes; confirmation; stale selection; unrelated manual edits; metadata edits; subset approval; unsupported files; no compounding across sessions; relaunch recovery |
-| `recovery.test.mjs` (16) | Engine SIGKILLed after a write lands / before it lands; settle window; interrupted restore; manual edits after apply; bridge exits mid-apply; timeouts that land late / never; plug-in errors; rounding and side-effect mismatches; selection change mid-apply; app quit mid-apply; concurrent engines; torn and damaged journals; stopped-and-resumed analysis; AI outage fails resumably and retries |
+| `engine.test.mjs` (20) | Guard limits incl. cumulative and mired caps; read-back classification; WB-mode restore; format capabilities; analyze-never-writes; confirmation; stale selection; unrelated manual edits; metadata edits; subset approval; unsupported files; no compounding across sessions; relaunch recovery |
+| `recovery.test.mjs` + `recovery-plugin.test.mjs` (16 + 16) | Engine SIGKILLed after a write lands / before it lands; settle window; interrupted restore; manual edits after apply; bridge exits mid-apply; timeouts that land late / never; plug-in errors; rounding and side-effect mismatches; selection change mid-apply; app quit mid-apply; concurrent engines; torn and damaged journals; stopped-and-resumed analysis; AI outage fails resumably and retries |
 | `analysis.test.mjs` (13) | Capture-time parsing across locales; scene splits; reframing vs real light change; tiny faces and small previews; scene exposure matching; outlier frames; strength scaling and thresholds; highlight protection; WB drift sync; mixed light; looks incl. preserved low-key/silhouette and creative colour; skin-hue warnings; schema normalization |
 | `selection.test.mjs` (4) | Apply-time selection interlock: full reads O(n/N) (exact read counts asserted), a same-size swap stops the run within N photos and never writes outside the authorization, the rotating sample catches swaps early, reselecting resumes without double writes |
-| `whitebalance.test.mjs` (16) | Relative (JPEG/HEIC) white balance proposed, written, verified and restored to As Shot; honest skip when the bridge can't write or can't read it; scene blending; model prompt; exposure-and-WB-only scope; looks named in explanations; skin-tone verdicts in Kelvin and relative units; colour-science slider directions; measured casts corrected when the AI calls skin natural; measurement sets the amount when it agrees with the AI; deliberate warm light left alone |
+| `whitebalance.test.mjs` (17) | Relative (JPEG/HEIC) white balance proposed, written, verified and restored to As Shot; honest skip when the bridge can't write or can't read it; scene blending; model prompt; exposure-and-WB-only scope; looks named in explanations; skin-tone verdicts in Kelvin and relative units; colour-science slider directions; measured casts corrected when the AI calls skin natural; measurement sets the amount when it agrees with the AI; deliberate warm light left alone |
+| `plugin.test.mjs` (12) | TonePilot's plug-in: Lua allowlist equals the engine's keys and only eight actions exist; the Lua run against stub SDK objects (allowlist, ranges, JSON, token check, bridge file 0600, superseded instance) when a Lua interpreter is installed (skipped otherwise; CI has none); token required; client-side allowlist rejection; reconnect after dropped response connections; fallback to the MCP bridge with no or a stale bridge file; one Lightroom snapshot per photo before its first write, never blocking it; select mode; crop changes after analysis seen only through the plug-in; sessions that span both bridges |
 | `bridgepatch.test.mjs` (2) | Bridge patch adds exactly two keys with backups, idempotent, refuses other versions |
-| `bridge.test.mjs` (7) | Read-only selection, empty selection, over-limit selection, disconnected plug-in, unverified bridge version, pinned bridge, doctor completeness |
+| `bridge.test.mjs` (8) | Read-only selection, empty selection, over-limit selection, disconnected plug-in, unverified bridge version, pinned bridge, doctor completeness |
 | `benchmark.test.mjs` (7) | Wilson intervals, blind-scoring requirement, small samples never "validated", interval-based gates, per-skin-group and lighting breakdowns, calibration threshold, repeatability |
 
 **Mutation checks.** Reintroducing v0.4 defect A1 (treat an in-flight restore as finished) fails *interrupted restore is never reported as restored*; reintroducing A4 (pre-write check on changed keys only) fails *an unrelated manual edit … makes only that photo stale*.
@@ -96,6 +97,8 @@ Conclusion: the engine itself is not the bottleneck at 500 photos; AI latency an
 The trade-off: a selection change is now noticed within 25 photos (usually sooner, when the sample lands on a changed photo) instead of at the next photo. Writes in that window still go only to authorized photos and still pass the per-photo identity and staleness checks; the interlock signals the photographer's intent, it is not what prevents a wrong write.
 
 ## Not yet measured
+
+- **TonePilot's own Lightroom plug-in (`TonePilot/LightroomPlugin`) has never run inside Lightroom.** Its Lua is syntax-checked with `luac` 5.5 (Lightroom embeds Lua 5.1) and exercised only against stub SDK objects; the engine is tested only against a mock of its protocol. Snapshot support (`createDevelopSnapshot`), the History step name, and whether any `full` Develop value changes without an edit are unverified.
 
 - Any real Develop write, verification or restore (gate G1).
 - Any RAW file; any multi-scene gallery; flash, tungsten or mixed light on real data.
