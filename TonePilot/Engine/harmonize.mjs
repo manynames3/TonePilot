@@ -256,6 +256,18 @@ function decideTone(scene, eligible, policy, out) {
 
 // Advisory only. Different people legitimately differ, so only large, well-measured
 // faces count, and the result is a "check this" note, never a correction.
+// Always say what the skin-tone check concluded, including "no change" and why.
+function skinToneLine(p, d) {
+  const st = p.ai.skinTone, relative = p.capabilities?.wbMode === 'relative';
+  const wbChanged = ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint'].some(k => k in d.changes);
+  if (st.verdict === 'correct') return 'Skin tone judged natural — white balance left as shot.';
+  if (st.verdict === 'no-skin') return 'No skin visible — white balance follows the scene only.';
+  if (st.verdict === 'mixed-light') return 'Mixed light on skin — white balance left for you to judge.';
+  const ask = [st.temperatureShift ? (st.temperatureShift > 0 ? '+' : '') + Math.round(st.temperatureShift) + (relative ? '' : ' K') + ' temperature' : null,
+    st.tintShift ? (st.tintShift > 0 ? '+' : '') + Math.round(st.tintShift) + ' tint' : null].filter(Boolean).join(', ') || 'no change';
+  return 'Skin tone ' + st.verdict.replaceAll('-', ' ') + ': AI suggested ' + ask + (wbChanged ? '.' : ' — below the smallest change TonePilot makes, so white balance was left as shot.');
+}
+
 function skinHueWarnings(scenePhotos, out) {
   const hueOf = p => {
     const f = p.metrics?.faces?.[0];
@@ -271,8 +283,25 @@ function skinHueWarnings(scenePhotos, out) {
   }
 }
 
+const VERDICT_CAST = {'too-warm': 'too-warm', 'too-cool': 'too-cool', 'too-green': 'green', 'too-magenta': 'magenta',
+  'too-warm-and-green': 'green', 'too-warm-and-magenta': 'magenta', 'too-cool-and-green': 'green', 'too-cool-and-magenta': 'magenta'};
+
+// The model's mandatory skin-tone verdict carries the white-balance shift it wants.
+// Turn it into absolute proposals in the photo's own units (Kelvin for RAW, relative
+// steps for JPEG/HEIC/TIFF); everything after this is the usual scene + policy logic.
+export function withSkinTone(p) {
+  const st = p.ai?.skinTone;
+  if (!st || !p.capabilities?.wb || !(st.verdict in VERDICT_CAST)) return p;
+  const proposed = {...p.ai.proposed};
+  const [tKey, iKey] = p.capabilities.wbMode === 'relative' ? ['IncrementalTemperature', 'IncrementalTint'] : ['Temperature', 'Tint'];
+  if (st.temperatureShift && typeof p.baseline[tKey] === 'number') proposed[tKey] = p.baseline[tKey] + st.temperatureShift;
+  if (st.tintShift && typeof p.baseline[iKey] === 'number') proposed[iKey] = p.baseline[iKey] + st.tintShift;
+  return {...p, ai: {...p.ai, proposed, skinCast: VERDICT_CAST[st.verdict]}};
+}
+
 // photos: [{id, state, baseline, origin, capabilities, metrics, ai, aiError}]; scenes from groupScenes.
-export function decide({photos, scenes, policy, enabled}) {
+export function decide({photos: input, scenes, policy, enabled}) {
+  const photos = input.map(withSkinTone);
   const byId = Object.fromEntries(photos.map(p => [p.id, p]));
   const out = {};
   for (const scene of scenes) {
@@ -300,6 +329,7 @@ export function decide({photos, scenes, policy, enabled}) {
     skinHueWarnings(members, out);
     for (const p of eligible) {
       const d = out[p.id];
+      if (d.allow.wb && p.ai.skinTone) d.rationale.push(skinToneLine(p, d));
       delete d.allow;
       if (!Object.keys(d.changes).length) {
         d.status = 'skipped';

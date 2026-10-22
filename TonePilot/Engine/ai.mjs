@@ -11,6 +11,8 @@ export const ILLUMINANTS = ['daylight', 'open-shade', 'overcast', 'golden-hour',
 export const INTENTS = ['none', 'low-key', 'high-key', 'silhouette', 'creative-colour'];
 export const SKIN_CASTS = ['none', 'green', 'magenta', 'too-warm', 'too-cool', 'unknown', 'no-skin'];
 export const SUBJECT_EXPOSURE = ['under', 'ok', 'over', 'no-subject'];
+export const SKIN_VERDICTS = ['correct', 'too-warm', 'too-cool', 'too-green', 'too-magenta', 'too-warm-and-green',
+  'too-warm-and-magenta', 'too-cool-and-green', 'too-cool-and-magenta', 'mixed-light', 'no-skin'];
 const SETTINGS = ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint', 'Exposure2012',
   'Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'];
 
@@ -18,8 +20,17 @@ const SETTINGS = ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalT
 export const ASSESSMENT_SCHEMA = {
   type: 'object', additionalProperties: false,
   required: ['skip', 'confidence', 'scene', 'illuminant', 'mixedLighting', 'backlit', 'intent', 'skinCast',
-    'subjectExposure', 'changes', 'reason'],
+    'skinTone', 'subjectExposure', 'changes', 'reason'],
   properties: {
+    // Mandatory skin-tone verdict: the model must state the white-balance shift that
+    // makes skin look natural (0 when it already does), so silence is never ambiguous.
+    skinTone: {type: 'object', additionalProperties: false, required: ['verdict', 'temperatureShift', 'tintShift', 'note'],
+      properties: {
+        verdict: {type: 'string', enum: SKIN_VERDICTS},
+        temperatureShift: {type: 'number'},
+        tintShift: {type: 'number'},
+        note: {type: 'string', maxLength: 160}
+      }},
     skip: {type: 'boolean'},
     confidence: {type: 'number', minimum: 0, maximum: 1},
     scene: {type: 'string', maxLength: 80},
@@ -56,12 +67,16 @@ export function buildPrompt({photo, scene, policy, enabled}) {
     medianBrightness_sRGB: m.luma?.median ?? null
   } : 'unavailable';
   const wbMode = photo.capabilities?.wbMode;
-  const wbNote = !enabled.wb ? ''
+  const skinTask = 'SKIN TONE (required, every photo): look at the skin of the main people and decide whether its colour is natural for that person under this light. ' +
+    'Set skinTone.verdict, and set temperatureShift/tintShift to the white-balance change that would make the skin look natural — use 0 and 0 when it already does. ' +
+    'Do not put white-balance settings in changes; skinTone carries them. Respect each person\'s own complexion and purposeful warm light (golden hour, candlelight). ' +
+    'Use verdict "mixed-light" when different light colours fall on the skin and "no-skin" when no skin is visible (both with 0 shifts).';
+  const wbNote = !enabled.wb ? 'White balance is disabled: set skinTone shifts to 0.'
     : wbMode === 'relative'
-      ? 'White balance for this file is RELATIVE (JPEG/HEIC/TIFF): propose IncrementalTemperature and/or IncrementalTint, never Temperature or Tint. Scale −100…+100, 0 = as shot; +Temperature = warmer, −Temperature = cooler, +Tint = more magenta, −Tint = more green. Typical corrections are 3–15.'
+      ? skinTask + ' Units for this JPEG/HEIC/TIFF file: Lightroom relative steps (−100…+100 scale; 0 = as shot). +temperatureShift = warmer, −temperatureShift = cooler, +tintShift = more magenta, −tintShift = more green. Typical natural-skin corrections are 3–15.'
       : wbMode === 'kelvin'
-        ? 'White balance for this RAW file is in Kelvin: propose Temperature (K) and/or Tint; never the Incremental keys.'
-        : 'White balance is NOT adjustable for this file; do not propose any white-balance setting.';
+        ? skinTask + ' Units for this RAW file: temperatureShift in Kelvin relative to the current Temperature (+ = warmer rendering, i.e. raise Lightroom\'s Temperature slider), tintShift in Lightroom Tint units (+ = more magenta, − = more green). Typical natural-skin corrections are 100–600 K and 2–10 tint.'
+        : 'White balance cannot be changed for this file: still judge skinTone.verdict, but set both shifts to 0.';
   return [
     'You are assisting a professional wedding/portrait photographer with a conservative first pass in Lightroom Classic.',
     'Assess this Lightroom-rendered preview. Return only the JSON object required by the schema.',
@@ -98,6 +113,12 @@ export function normalizeAssessment(raw) {
     mixedLighting: raw.mixedLighting === true, backlit: raw.backlit === true,
     intent: pick(raw.intent, INTENTS, 'none'), skinCast: pick(raw.skinCast, SKIN_CASTS, 'unknown'),
     subjectExposure: pick(raw.subjectExposure, SUBJECT_EXPOSURE, 'no-subject'),
+    skinTone: raw.skinTone && typeof raw.skinTone === 'object' ? {
+      verdict: pick(raw.skinTone.verdict, SKIN_VERDICTS, 'no-skin'),
+      temperatureShift: num(raw.skinTone.temperatureShift) ? raw.skinTone.temperatureShift : 0,
+      tintShift: num(raw.skinTone.tintShift) ? raw.skinTone.tintShift : 0,
+      note: String(raw.skinTone.note || '').slice(0, 160)
+    } : null,
     proposed, reason: String(raw.reason || '').slice(0, 300)
   };
 }

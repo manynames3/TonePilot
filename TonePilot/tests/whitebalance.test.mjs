@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {setup, rawPhoto} from './helpers.mjs';
-import {decide} from '../Engine/harmonize.mjs';
+import {decide, withSkinTone} from '../Engine/harmonize.mjs';
 import {resolvePolicy} from '../Engine/policy.mjs';
 import {buildPrompt} from '../Engine/ai.mjs';
 import {capabilitiesOf, restorePlan} from '../Engine/guard.mjs';
@@ -78,8 +78,8 @@ test('the model is told how relative white balance works, with measured colour e
     metrics: {subject: {method: 'face'}, faces: [{hue: 38.4, chroma: 21.2}], neutral: {a: -1.2, b: -4.5, fraction: 0.12}}};
   const p = buildPrompt({photo, scene: {id: 'S1', photos: ['a'], reference: 'a'}, policy: resolvePolicy('Natural', 'Balanced'),
     enabled: {wb: true, exposure: true, tone: false}});
-  assert.match(p, /IncrementalTemperature/);
-  assert.match(p, /never Temperature or Tint/);
+  assert.match(p, /SKIN TONE \(required, every photo\)/);
+  assert.match(p, /Lightroom relative steps/);
   assert.match(p, /"hueDeg":38/);
   assert.match(p, /neutralAreasCast/);
   assert.match(p, /Enabled corrections: wb, exposure\./);
@@ -113,4 +113,35 @@ test('restoring relative white balance re-selects the original mode', () => {
   const plan = restorePlan(base, {IncrementalTemperature: 10}, {...base, IncrementalTemperature: 10, WhiteBalance: 'Custom'});
   assert.deepEqual(plan.target, {WhiteBalance: 'As Shot'});
   assert.deepEqual(plan.verify, {IncrementalTemperature: 0, IncrementalTint: 0, WhiteBalance: 'As Shot'});
+});
+
+const skinPhoto = (mode, verdict, t, i) => ({id: 'p', state: 'baselined',
+  capabilities: {supported: true, wb: true, wbMode: mode, exposure: true, tone: true},
+  baseline: mode === 'kelvin' ? {WhiteBalance: 'As Shot', Temperature: 4950, Tint: 12, Exposure2012: 0}
+    : {WhiteBalance: 'As Shot', IncrementalTemperature: 0, IncrementalTint: 0, Exposure2012: 0},
+  origin: null, metrics: null,
+  ai: {skip: false, confidence: 0.92, intent: 'none', mixedLighting: false, skinCast: 'none', subjectExposure: 'ok', proposed: {},
+    skinTone: {verdict, temperatureShift: t, tintShift: i, note: ''}, reason: 'r'}});
+const decideOne = p => decide({photos: [p], scenes: [{id: 'S1', photos: ['p'], flash: false}],
+  policy: resolvePolicy('Natural', 'Balanced'), enabled: {wb: true, exposure: true, tone: false}}).p;
+
+test('a too-cool skin verdict on RAW becomes a Kelvin change, scaled and capped by strength', () => {
+  const d = decideOne(skinPhoto('kelvin', 'too-cool-and-green', 400, 5));
+  assert.ok(d.changes.Temperature > 4950 && d.changes.Temperature <= 5300, String(d.changes.Temperature));
+  assert.equal(d.changes.Tint, 16, '12 + 5 × 0.8');
+  assert.match(d.rationale.join(' '), /Skin tone too cool and green: AI suggested \+400 K temperature, \+5 tint\./);
+});
+
+test('the same verdict on HEIC becomes a relative change', () => {
+  const d = decideOne(skinPhoto('relative', 'too-cool', 10, 0));
+  assert.equal(d.changes.IncrementalTemperature, 8);
+  assert.ok(!('Temperature' in d.changes));
+});
+
+test('natural skin and too-small shifts are explained, never silent', () => {
+  assert.match(decideOne(skinPhoto('kelvin', 'correct', 0, 0)).rationale.join(' '), /Skin tone judged natural/);
+  const tiny = decideOne(skinPhoto('kelvin', 'too-warm', -30, 0));
+  assert.ok(!('Temperature' in tiny.changes));
+  assert.match(tiny.rationale.join(' '), /below the smallest change/);
+  assert.equal(withSkinTone(skinPhoto('kelvin', 'mixed-light', 300, 0)).ai.proposed.Temperature, undefined, 'mixed light never converted');
 });

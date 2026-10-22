@@ -236,12 +236,16 @@ struct PhotoCard: View {
                 }
                 if !photo.changes.isEmpty { ChangeTable(changes: photo.changes, state: photo.state) }
                 // Lead with what TonePilot decided and why; the AI's view is supporting evidence.
-                if !photo.changes.isEmpty, let lead = photo.rationale.first {
+                if !photo.changes.isEmpty, let lead = photo.rationale.first(where: { $0 != skinLine }) {
                     Text(lead).font(Theme.secondaryStrong).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
                 }
                 if !photo.reason.isEmpty {
                     Text((photo.changes.isEmpty ? "" : "AI assessment: ") + photo.reason).font(Theme.secondary).foregroundStyle(Theme.muted)
                         .lineLimit(disclosure.open ? nil : 2).fixedSize(horizontal: false, vertical: true)
+                }
+                if let skinLine {
+                    Label(skinLine, systemImage: "face.smiling").font(Theme.secondaryStrong).foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let conflict = photo.restoreConflict {
                     Label(conflict.reason, systemImage: "hand.raised.fill").font(Theme.secondaryStrong).foregroundStyle(Theme.attention)
@@ -273,6 +277,11 @@ struct PhotoCard: View {
         .accessibilityElement(children: .contain)
     }
 
+    // The mandatory skin-tone verdict, shown on every card so "no change" is never silent.
+    private var skinLine: String? {
+        photo.rationale.first { $0.hasPrefix("Skin tone") || $0.hasPrefix("No skin") || $0.hasPrefix("Mixed light on skin") }
+    }
+
     private func writeSummary(_ w: Outcome) -> String {
         var parts = [String]()
         if let m = w.mismatched, !m.isEmpty { parts.append("Read back differently: " + m.joined(separator: ", ")) }
@@ -283,7 +292,7 @@ struct PhotoCard: View {
 
     @ViewBuilder private var details: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(photo.changes.isEmpty ? photo.rationale : Array(photo.rationale.dropFirst()), id: \.self) {
+            ForEach(photo.rationale.filter { $0 != skinLine && ($0 != photo.rationale.first(where: { $0 != skinLine }) || photo.changes.isEmpty) }, id: \.self) {
                 Label($0, systemImage: "arrow.right.circle").font(Theme.secondary).foregroundStyle(Theme.ink)
             }
             ForEach(photo.warnings.filter { !hidden.contains($0) }, id: \.self) {
