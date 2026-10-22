@@ -1,22 +1,31 @@
-# TonePilot blind quality benchmark
+# Benchmarks
 
-The evaluation harness prevents invented performance claims. There are currently no scored benchmark galleries.
+These tools summarize evidence; none of them can create it. There are still **no scored benchmark galleries**.
 
-## Procedure
+| Tool | Measures | Needs |
+|---|---|---|
+| `evaluate.mjs` | Blind acceptance, major regressions, review time vs any number of baselines; 95% Wilson intervals; paired McNemar test; breakdown by lighting and skin group; confidence calibration and an evidence-based threshold | Independently rated JSON (protocol in [docs/VALIDATION.md](../../docs/VALIDATION.md), gate G3) |
+| `repeatability.mjs` | How often identical analyses of the same photos agree | Two or more session folders |
+| `scale.mjs` | Engine journaling, folding, grouping and planning cost at 20/100/500 photos; engine overhead end to end | Nothing (synthetic) |
 
-1. Collect at least 100 held-out RAW photos, ideally 500+, covering diverse camera systems, complex lighting and natural skin tones.
-2. Independently render TonePilot and baseline results from the same originals. Include Lightroom Auto and a meaningful paid competitor where possible.
-3. Blind the source editor, randomize image order and obtain independent professional ratings.
-4. Record per-image acceptance without substantial re-editing, presence of major color or exposure regressions, and actual correction/review minutes.
-5. Keep the data set separate from the tuning set and all client data private.
-6. Run the evaluation harness using the actual scored JSON file.
+## evaluate.mjs input
 
-Command:
+```json
+{
+  "blinded": true,
+  "photos": [{
+    "id": "wedding3-0412",
+    "category": {"lighting": "window", "skin": "V-VI"},
+    "confidence": 0.86,
+    "scores": {
+      "tonepilot":      {"accepted": true,  "majorRegression": false, "reviewMinutes": 0.4},
+      "lightroom-auto": {"accepted": false, "majorRegression": false, "reviewMinutes": 1.6},
+      "aftershoot":     {"accepted": true,  "majorRegression": false, "reviewMinutes": 0.7}
+    }
+  }]
+}
+```
 
-    node TonePilot/Benchmarks/evaluate.mjs /path/to/independently-scored-gallery.json
+`"validated": true` requires at least 100 photos and the *interval*, not the point estimate, to clear each target: acceptance ≥ 85%, major regressions < 2%, ≥ 40% less review time than every baseline, and a significant paired advantage over at least one. Fewer than 100 photos exits with code 3.
 
-The JSON must contain a top-level blinded=true and photos array, each entry having id and scores.tonepilot and scores.baseline. Each score must include accepted (boolean), majorRegression (boolean) and reviewMinutes (nonnegative number).
-
-Proposed benchmark goals: 85% accepted, fewer than 2% major regressions, at least 40% lower editing/review time, and improved acceptance versus the chosen baseline. These are targets, not achieved results. The program exits unsuccessfully for fewer than 100 evaluated images.
-
-Safety testing is separate: out-of-scope photo IDs, unexpected Develop keys, changed selections, catalog identity changes, interrupted writes, rollback conflicts, and correct cancellation. A real Lightroom recovery exercise is required before marketing the feature.
+Keep the evaluation set separate from anything used to tune thresholds, and keep client photos private.

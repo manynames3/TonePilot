@@ -1,31 +1,31 @@
-# TonePilot macOS — source and development
+# TonePilot for macOS — source
 
-The native Editorial Studio interface remains a lightweight Lightroom Classic companion. v0.4 adds a **review-before-apply** editing pipeline rather than allowing a free-form AI agent to write Develop settings.
-
-The app uses:
-- Source/TonePilotApp.swift — macOS SwiftUI controls, review confirmation, session restoration interface.
-- Source/WorkspaceModel.swift — Lightroom selection, process/status management, private session history.
-- Engine/engine.mjs — read-only analysis, guarded apply, verification and conditional restoration.
-- Engine/guard.mjs — explicit Develop-setting allowlist, bounded corrections and independent unchanged-setting checks.
-- Engine/lightroom.mjs — local MCP JSON-RPC bridge, with timeouts and selection validation.
-- Engine/ImageMetrics.swift — local preview histogram and clipping measurements.
-- scan-selection.mjs — fast direct read-only selection scanner.
-- tests/ — isolated mocked Lightroom and AI tests.
-- Benchmarks/ — protocol and harness for real blind photographic evaluation.
+| Path | Contents |
+|---|---|
+| `Source/` | SwiftUI app: `TonePilotApp` (shell, sidebar, progress), `StartViews` (setup, new pass), `SessionViews` (review, apply, recovery), `AppModel`, `Engine` (process runner, paths), `Models`, `Components`, `Snapshot` (developer screenshots) |
+| `Engine/` | Guarded Node.js engine and the Swift analyzer — see [Engine/README.md](Engine/README.md) |
+| `BridgeServer/` | Pinned lockfile for the bundled third-party Lightroom bridge |
+| `tests/` | Automated suites (mock Lightroom, mock AI, fault injection), `demo-sessions.mjs`, and `live/sandbox-cycle.mjs` (real writes, sandbox only) |
+| `Benchmarks/` | Evaluation, repeatability and scale tools |
 
 ## Build
 
-Run TonePilot/build.sh from the repository root. The build places the complete native application bundle in your user Applications folder, bundles the guarded engine and preview metrics helper, and ad-hoc signs the app. It is NOT notarized.
+```bash
+./TonePilot/build.sh
+```
 
-The app stores editable session reports and plans in your macOS user Application Support/TonePilot/runs directory—not alongside the Git source. This includes filenames and relevant settings; the contents must be treated as private client data.
+Builds into `~/Applications/TonePilot.app` (override with `TONEPILOT_APP_PATH`). Requires the Xcode Command Line Tools and network access for `npm ci` of the pinned bridge. The build compiles the app and analyzer, runs the analyzer self-test, bundles the engine and bridge, signs (ad-hoc by default, Developer ID with `TONEPILOT_SIGN_IDENTITY`), verifies the signature, and only then replaces the installed app. It is not notarized unless you run `notarize.sh`.
 
-Run all test suites using Node's test runner over TonePilot/tests/*.test.mjs.
+The app uses `@StateObject` instead of `@State` deliberately: on the macOS 27 SDK, `@State` is a macro whose plugin ships only with full Xcode.
 
-## Verified today
+## Test
 
-- The Mac app builds and opens with its native UI.
-- The Lightroom MCP bridge returns real selection IDs, Develop metadata and rendered JPEG previews.
-- A read-only five-HEIC cloud AI pilot produced four proposed changes and one skipped photo; **none were applied**.
-- The simulated full write/verify/restore process and multiple safety failure tests pass.
+```bash
+node --test TonePilot/tests/*.test.mjs
+```
 
-**Not verified:** actual Develop writes in a real sandbox Lightroom catalog, objective color/skin accuracy, client-safe restoration, quantified time savings, scale beyond 20 photos, and notarized distribution. Do not charge for this as a finished editing product.
+Never touches a real catalog. For UI review without real photos: `node TonePilot/tests/demo-sessions.mjs /tmp/demo-runs`, then launch the app with `TONEPILOT_RUNS_DIR=/tmp/demo-runs`. Add `TONEPILOT_SNAPSHOT_DIR=/tmp/shots` to have the app render each screen to PNG and quit.
+
+## Data
+
+Sessions live in `~/Library/Application Support/TonePilot/runs/session-*/` (owner-only): `journal.jsonl` is authoritative; `session.json` and `report.txt` are rebuilt views. They contain filenames and Develop values — treat them as client data. TonePilot 0.4 sessions are listed read-only.
