@@ -53,7 +53,7 @@ TonePilot sends 640-pixel Lightroom previews and the photo's current Develop val
 
 ## Try the developer preview
 
-Test photos in a **backed-up, disposable catalog** only. Requirements: macOS 14+, Apple Silicon, Lightroom Classic, the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) 0.24.1, Node.js 18+, a signed-in Codex CLI, and the Xcode Command Line Tools to build.
+Test photos in a **backed-up, disposable catalog** only. Requirements: macOS 14+, Apple Silicon, Lightroom Classic, the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) 0.24.1, a signed-in Codex CLI, and the Xcode Command Line Tools and Node.js 18+ to build. The app bundles its own Node.js runtime.
 
 ```bash
 git clone https://github.com/manynames3/TonePilot.git

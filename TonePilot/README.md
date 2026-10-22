@@ -14,7 +14,9 @@
 ./TonePilot/build.sh
 ```
 
-Builds into `~/Applications/TonePilot.app` (override with `TONEPILOT_APP_PATH`). Requires the Xcode Command Line Tools and network access for `npm ci` of the pinned bridge. The build compiles the app and analyzer, runs the analyzer self-test, bundles the engine and bridge, signs (ad-hoc by default, Developer ID with `TONEPILOT_SIGN_IDENTITY`), verifies the signature, and only then replaces the installed app. It is not notarized unless you run `notarize.sh`.
+Builds into `~/Applications/TonePilot.app` (override with `TONEPILOT_APP_PATH`). Requires the Xcode Command Line Tools, Node.js 18+ and network access for `npm ci` of the pinned bridge and the Node.js download. The build compiles the app and analyzer, runs the analyzer self-test, bundles the engine, the bridge and the Node.js runtime, signs (ad-hoc by default, Developer ID with `TONEPILOT_SIGN_IDENTITY`), verifies the signature, and only then replaces the installed app. It is not notarized unless you run `notarize.sh`.
+
+The bundled runtime is the official Node.js darwin-arm64 build pinned in `build.sh` by version and SHA-256 (from nodejs.org's `SHASUMS256.txt`), cached in `TonePilot/.build/`. Only `bin/node` ships, as `Contents/Helpers/node`; it alone gets the JIT entitlement (`Node.entitlements`) under the hardened runtime. The app runs the engine, the bridge and the Codex CLI on it. `TONEPILOT_BUNDLE_NODE=0` skips it, and the app then falls back to a system Node.
 
 The app uses `@StateObject` instead of `@State` deliberately: on the macOS 27 SDK, `@State` is a macro whose plugin ships only with full Xcode.
 

@@ -42,8 +42,9 @@ function check(id, ok, title, detail, fix = null, severity = 'required') { retur
 export async function runDoctor({live = false} = {}) {
   const checks = [];
   const major = Number(process.versions.node.split('.')[0]);
-  checks.push(check('node', major >= 18, 'Node.js runtime', 'Node ' + process.versions.node,
-    major >= 18 ? null : 'Install Node.js 18 or newer.'));
+  const bundled = process.execPath.endsWith('.app/Contents/Helpers/node');
+  checks.push(check('node', major >= 18, 'Node.js runtime', 'Node ' + process.versions.node + (bundled ? ' (bundled)' : ' (system)'),
+    major >= 18 ? null : bundled ? 'Reinstall TonePilot.' : 'Install Node.js 18 or newer, or use a build that bundles Node.'));
 
   const app = lightroomApp();
   checks.push(check('lightroom-installed', app, 'Lightroom Classic installed', app || 'Not found',

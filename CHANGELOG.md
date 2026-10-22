@@ -2,6 +2,10 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
+## Unreleased
+
+- **Node.js is bundled.** The build ships the official Node.js 22.23.4 runtime (checksum-verified, signed with the app); TonePilot no longer needs Node installed, and the engine, bridge and Codex CLI all run on it.
+
 ## 0.5.0 — developer preview (October 22, 2026)
 
 The 0.4 audit ([docs/AUDIT.md](docs/AUDIT.md)) found that recovery could fail silently, repeated runs could compound edits, and editing decisions were single-photo AI guesses. 0.5 rebuilds the engine, the editing logic and the app.
