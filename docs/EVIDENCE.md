@@ -45,14 +45,15 @@ Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced
 
 | | Result |
 |---|---|
-| Develop writes | 15 (12 RAW, 3 HEIC) across 13 journaled sessions |
-| Verified by read-back | **15/15** |
-| White-balance writes | 6, all on RAW (e.g. 4450 → 4820 K, tint 13 → 16), all verified |
+| Develop writes | 16 (13 RAW, 3 HEIC) across 6 sessions |
+| Verified by read-back | **16/16** |
+| White-balance writes | 7, all on RAW (e.g. 4450 → 4820 K, tint 13 → 16; tint 14 → 6 from the measured cast), all verified |
+| White-balance mode | Lightroom kept showing **As Shot** after a Temperature/Tint write (seen by the owner); the mock had wrongly flipped it to Custom. Fixed: every WB write now also sets Custom, and restore puts the original mode back in the same write. No real write has used the fix yet |
 | Restores on real photos | 0 — not yet exercised |
 
 **Colour-cast measurement** (read-only, analyzer on Lightroom previews): white surfaces on 4D6A8895 measure a* +2.6, b* −1.1 (white shirts, 17% of the frame); on 4D6A8913 a* +3.4, b* −2.7. With the colour-science conversion the plan for 4D6A8895 is Tint 14 → 8 (Balanced) / 6 (Stronger); before this change the AI called the skin natural and nothing was proposed. One real calibration point (tint −2 → white a* −0.27) is within a factor of ~2 of the theoretical slope (~0.30 a* per tint step); more paired before/after measurements are needed.
 
-**Lightroom preview reliability:** "error loading thumb" occurred on several real requests minutes apart for photos that previewed fine earlier; retries now absorb it.
+**Lightroom preview reliability:** "error loading thumb" occurred on several real requests minutes apart for photos that previewed fine earlier; retries now absorb it. On one CR3 all three requested sizes failed and the 320-px retry returned the full 5472 × 3648 image (3 MB), which went to the model. Previews are now capped at 1024 px locally: re-run read-only on the same photo with the integrated 0.6 build (bundled Node only on `PATH`, MCP bridge), the analyzer measured a 1024 × 682 preview and found 2 faces; 31 s wall (~20 s of it Lightroom's preview retries, 8 s AI, 26,229 input tokens), 244 MB peak.
 
 ## AI cost: one call per photo vs scene batches (October 22, 2026, read-only)
 
@@ -119,8 +120,8 @@ The trade-off: a selection change is now noticed within 25 photos (usually soone
 
 - **TonePilot's own Lightroom plug-in (`TonePilot/LightroomPlugin`) has never run inside Lightroom.** Its Lua is syntax-checked with `luac` 5.5 (Lightroom embeds Lua 5.1) and exercised only against stub SDK objects; the engine is tested only against a mock of its protocol. Snapshot support (`createDevelopSnapshot`), the History step name, and whether any `full` Develop value changes without an edit are unverified.
 
-- Any real Develop write, verification or restore (gate G1).
-- Any RAW file; any multi-scene gallery; flash, tungsten or mixed light on real data.
+- Any restore on real photos, and the controlled sandbox cycle (gate G1).
+- Any multi-scene gallery; flash, tungsten or mixed light on real data.
 - Photographic quality, acceptance, regressions, time saved (gate G3).
 - Memory and responsiveness of Lightroom itself during a long job.
 - Behaviour with Lightroom closed mid-job on real hardware (simulated only).

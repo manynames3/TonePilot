@@ -11,14 +11,15 @@ TonePilot is a **Lightroom Classic companion**. It is not a RAW editor, catalog 
 - Never overwrite a photographer's edit: stale photos are skipped; restore only touches TonePilot's own keys while they still hold TonePilot's values.
 - Writable keys: Temperature, Tint (RAW), IncrementalTemperature, IncrementalTint (JPEG/HEIC/TIFF, only when the bridge accepts them), Exposure2012, Highlights2012, Shadows2012, Whites2012, Blacks2012. WhiteBalance only to restore an original mode. Nothing else.
 - Limits are cumulative from each photo's origin (`lineage.mjs`). Model output is never permission to exceed them.
-- The Lightroom bridge is pinned (`BridgeServer/package-lock.json`, `TESTED_BRIDGE_VERSION`). Upgrading it means re-running gate G1.
+- The Lightroom MCP bridge is pinned (`BridgeServer/package-lock.json`, `TESTED_BRIDGE_VERSION`). Upgrading it means re-running gate G1.
+- TonePilot's own plug-in (`TonePilot/LightroomPlugin`) keeps its write allowlist identical to `guard.mjs` ALLOW + WhiteBalance (a test enforces it). It is unverified inside Lightroom: never install it into the owner's Lightroom without their approval, and run its first writes only under the G1 sandbox protocol.
 - Never use a sandbox-bypass flag. Never run real writes outside `tests/live/sandbox-cycle.mjs` on a backed-up sandbox catalog with the owner's explicit approval.
 - `MAX_JOB_PHOTOS` stays 20 until gate G4 passes.
 
 ## Truthfulness
 
 - Keep [docs/EVIDENCE.md](docs/EVIDENCE.md) the source of every claim, with real / simulated / not-measured kept apart.
-- As of v0.5.0: real read-only analysis on 5 HEIC photos; 15 real writes made by the owner (12 RAW, 3 HEIC), all verified, 6 of them white balance on RAW (restore not yet exercised on real photos); no RAW data; no quality benchmark; no time-savings evidence; model confidence uncalibrated.
+- As of 0.6 (unreleased): real read-only analysis on 5 HEIC photos and single RAW photos; 16 real writes made by the owner (13 RAW, 3 HEIC), all verified, 7 of them white balance on RAW (restore not yet exercised on real photos); no RAW gallery; no quality benchmark; no time-savings evidence; model confidence uncalibrated.
 - White balance on JPEG/HEIC needs a bridge that accepts `IncrementalTemperature`/`IncrementalTint`; stock bridge 0.24.1 does not. Never modify the third-party bridge or plug-in without the owner's explicit approval.
 - Public screenshots use synthetic demo sessions (`tests/demo-sessions.mjs`), never client photos, filenames or AI descriptions of them.
 
