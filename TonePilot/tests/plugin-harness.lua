@@ -10,7 +10,8 @@ local history, snapshots, selected, executed, inWrite = {}, {}, {}, {}, false
 
 local photo = { localIdentifier = 101 }
 function photo:getDevelopSettings() local c = {} for k, v in pairs(settings) do c[k] = v end return c end
-function photo:applyDevelopSettings(s) assert(inWrite, "write outside withWriteAccessDo") for k, v in pairs(s) do settings[k] = v end end
+local steps = {}
+function photo:applyDevelopSettings(s, step) assert(inWrite, "write outside withWriteAccessDo") steps[#steps + 1] = step for k, v in pairs(s) do settings[k] = v end end
 function photo:getRawMetadata(k) return ({ path = "/Photos/A.CR3", fileFormat = "RAW" })[k] end
 function photo:getFormattedMetadata(k) return ({ fileName = "A.CR3", cameraModel = "Mock" })[k] end
 function photo:createDevelopSnapshot(name, update) assert(inWrite and update) snapshots[#snapshots + 1] = name end
@@ -78,7 +79,10 @@ fails("settings is required", h.set_develop_settings, { photo_id = 101, settings
 fails("not found", h.set_develop_settings, { photo_id = 999, settings = { Exposure2012 = 0.3 } })
 assert(#history == 0 and settings.Exposure2012 == 0, "rejected writes never reach Lightroom")
 local w = h.set_develop_settings({ photo_id = "101", settings = { Exposure2012 = 0.3, WhiteBalance = "Custom" } })
-assert(w.success and settings.Exposure2012 == 0.3 and history[1] == "TonePilot first pass")
+assert(w.success and settings.Exposure2012 == 0.3 and history[1] == "TonePilot first pass" and steps[1] == "TonePilot first pass")
+h.set_develop_settings({ photo_id = 101, settings = { Exposure2012 = 0.3 }, history = "TonePilot restore" })
+assert(steps[2] == "TonePilot restore", "restores are named in History")
+fails("history step", h.set_develop_settings, { photo_id = 101, settings = { Exposure2012 = 0.1 }, history = "Anything" })
 assert(#h.writable_keys().keys == 10)
 
 -- Reads

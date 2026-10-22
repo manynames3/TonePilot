@@ -9,7 +9,7 @@ TonePilot's own Lightroom Classic plug-in (SDK 8+). It replaces the third-party 
 - Listens on **localhost only**, ports 58781 (requests) and 58782 (responses). LrSocket sockets carry data one way, hence two ports. Messages are newline-delimited JSON: `{"id", "token", "action", "params"}` → `{"id", "result"}` or `{"id", "error"}`.
 - On start it writes `~/Library/Application Support/TonePilot/bridge.json` (folder 0700, file 0600) with the ports and a random 256-bit token. Every request must carry that token; others get `Unauthorized`.
 - Serves exactly eight actions: `hello`, `writable_keys`, `get_selected_photos`, `get_photo_metadata` (the MCP bridge's Develop field names plus `full`: every scalar Develop value), `get_photo_preview`, `set_develop_settings`, `create_snapshot`, `select_photos`.
-- `set_develop_settings` accepts only WhiteBalance, Temperature, Tint, IncrementalTemperature, IncrementalTint, Exposure2012, Highlights2012, Shadows2012, Whites2012 and Blacks2012, within coarse slider ranges, and writes them as one History step named **TonePilot first pass**.
+- `set_develop_settings` accepts only WhiteBalance, Temperature, Tint, IncrementalTemperature, IncrementalTint, Exposure2012, Highlights2012, Shadows2012, Whites2012 and Blacks2012, within coarse slider ranges, as one History step named **TonePilot first pass** (restores: **TonePilot restore**; no other name is accepted).
 - Starts with Lightroom (`LrForceInitPlugin`); no Plug-in Manager visit needed. **Library → Plug-in Extras → TonePilot Connection Status** shows its state.
 
 ## Install (manual, for testing)
@@ -30,7 +30,7 @@ Use a **backed-up sandbox catalog**, never a working one. Steps 1–4 are read-o
 3. `--mode analyze` on RAW and HEIC photos (with `TONEPILOT_RUNS_DIR` pointing at a scratch folder) — previews arrive; the journal's `snapshot.full` holds Lightroom's Develop keys; HEIC photos get relative white balance.
 4. Run `inspect` twice without touching Lightroom and compare two `get_photo_metadata` results for one photo: no value in `full` may change by itself (a volatile key would make every photo look edited).
 5. `--mode select --ids '[…]'` — Lightroom selects those photos; Develop History is unchanged.
-6. Apply and restore on the sandbox catalog only, with the owner's approval (`tests/live/sandbox-cycle.mjs` protocol). Check: History shows a **TonePilot first pass** step per write; the Snapshots panel shows **TonePilot before …** once per photo; every write reads back `verified` (if a `full` key moves as a side effect of a write, it will show as `apply-mismatch` — record which); restore returns the original values.
+6. Apply and restore on the sandbox catalog only, with the owner's approval (`tests/live/sandbox-cycle.mjs` protocol). Check: History shows a **TonePilot first pass** step per write and **TonePilot restore** per restore; the Snapshots panel shows **TonePilot before …** once per photo; every write reads back `verified` (if a `full` key moves as a side effect of a write, it will show as `apply-mismatch` — record which); restore returns the original values.
 7. Quit and relaunch Lightroom, and use **File → Plug-in Manager → Reload Plug-in**: the engine must reconnect each time without a Plug-in Manager visit.
 
 Record the results in `docs/EVIDENCE.md` before relying on the plug-in.
@@ -38,7 +38,10 @@ Record the results in `docs/EVIDENCE.md` before relying on the plug-in.
 ## Open questions about the SDK
 
 - `LrPhoto:createDevelopSnapshot(name, update)` — the plug-in calls it inside `withWriteAccessDo` and reports `{supported: false}` when the method does not exist. The exact SDK version that added it, and whether it creates a History step of its own, are unverified.
-- Whether the History step shows the `withWriteAccessDo` action name ("TonePilot first pass") for `applyDevelopSettings` is unverified.
+- The step name is passed to `applyDevelopSettings(settings, historyName)` (and as the `withWriteAccessDo` undo name); that this Lightroom version shows it in History is unverified.
 - `withWriteAccessDo` is called with `{timeout = 10}`; how this Lightroom version reports a timeout is unverified (the plug-in errors if the write function did not run).
-- Restore writes go through the same action, so they also appear in History as "TonePilot first pass".
 - That LrSocket accepts only local connections is from the SDK's documented behaviour, not measured here.
+
+## Known limitation
+
+The token guards **requests** only. The response port is a fixed localhost port, so another process on this Mac that connects to it before the engine could read responses (photo metadata and previews), though it cannot make Lightroom do anything. The third-party MCP bridge has the same exposure. Fixing it needs responses tied to the token (for example, encrypted with it).

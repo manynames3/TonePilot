@@ -31,8 +31,8 @@ test('the plug-in writes exactly the engine\'s keys and serves only its eight ac
   const actions = [...source.matchAll(/^function handlers\.(\w+)/gm)].map(m => m[1]).sort();
   assert.deepEqual(actions, ['create_snapshot', 'get_photo_metadata', 'get_photo_preview', 'get_selected_photos',
     'hello', 'select_photos', 'set_develop_settings', 'writable_keys']);
-  assert.match(source, /withWriteAccessDo\(HISTORY_STEP/);
-  assert.match(source, /HISTORY_STEP = "TonePilot first pass"/);
+  assert.match(source, /applyDevelopSettings\(settings, history\)/, 'the History panel takes its step name from here');
+  assert.match(source, /HISTORY_STEPS = \{ \["TonePilot first pass"\] = true, \["TonePilot restore"\] = true \}/);
   const info = lua('Info.lua').match(/VERSION = \{ major = (\d+), minor = (\d+), revision = (\d+)/).slice(1).join('.');
   assert.equal(source.match(/version = "([\d.]+)"/)[1], info, 'hello reports the Info.lua version');
 });
@@ -111,6 +111,8 @@ test('a Lightroom snapshot is made once per photo, before its first write, and n
     assert.equal(x.run(['--mode', 'restore', '--session', dir, '--confirm']).status, 0);
     const name = 'TonePilot before ' + dir.slice(-6);
     assert.deepEqual(x.get().snapshots.map(s => [s.id, s.name]), [['101', name], ['102', name], ['103', name]], 'one each, none on retry or restore');
+    assert.deepEqual(x.get().writes.map(w => w.history), [undefined, undefined, undefined, 'TonePilot restore', 'TonePilot restore', 'TonePilot restore'],
+      'applies use the plug-in\'s default History step; restores are named');
     const journal = x.journal(dir);
     const records = journal.filter(r => r.type === 'photo-snapshot');
     assert.equal(records.length, 3);

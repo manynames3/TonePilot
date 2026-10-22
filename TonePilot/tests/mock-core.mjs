@@ -86,7 +86,7 @@ export function callTool(name, args, io, {writable, full = false}) {
     for (const key of Object.keys(args.settings)) if (!writable.includes(key)) return io.fail('Unsupported develop setting key: ' + key);
     data.writeCount = (data.writeCount || 0) + 1;
     const n = data.writeCount;
-    const apply = () => { applySettings(p, args.settings, faults); data.writes.push({id: pid, settings: args.settings, n}); };
+    const apply = () => { applySettings(p, args.settings, faults); data.writes.push({id: pid, settings: args.settings, n, history: args.history}); };
     if (faults.killBeforeWrite === n) { save(data); return io.killEngine(); }
     if (faults.errorOnWrite === n) { save(data); return io.fail('LrCatalog:withWriteAccessDo: blocked by another write'); }
     if (faults.timeoutWrite?.n === n) {

@@ -21,7 +21,9 @@ local RANGE = {
 }
 local WB_MODES = { ["As Shot"] = true, Auto = true, Daylight = true, Cloudy = true, Shade = true,
     Tungsten = true, Fluorescent = true, Flash = true, Custom = true }
-local HISTORY_STEP = "TonePilot first pass"
+-- The Develop History step names a write may carry (the History panel takes its name from
+-- applyDevelopSettings; withWriteAccessDo's name is only the Undo label).
+local HISTORY_STEPS = { ["TonePilot first pass"] = true, ["TonePilot restore"] = true }
 
 -- The field names the Lightroom MCP bridge reports, so the engine reads both bridges alike.
 local FIELDS = {
@@ -162,11 +164,13 @@ function handlers.set_develop_settings(params)
         n = n + 1
     end
     if n == 0 then error("settings is required", 0) end
+    local history = params.history or "TonePilot first pass"
+    if not HISTORY_STEPS[history] then error("Unknown history step: " .. tostring(history), 0) end
     local catalog = LrApplication.activeCatalog()
     local photo = photoById(catalog, params.photo_id)
     local written = false
-    catalog:withWriteAccessDo(HISTORY_STEP, function()
-        photo:applyDevelopSettings(settings)
+    catalog:withWriteAccessDo(history, function()
+        photo:applyDevelopSettings(settings, history)
         written = true
     end, { timeout = 10 })
     if not written then error("Lightroom's catalog was busy; nothing was written", 0) end

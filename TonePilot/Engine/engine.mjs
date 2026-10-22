@@ -400,7 +400,9 @@ async function doApply(client) {
 
 async function performRestore(client, id, cur, plan) {
   let error = null;
-  try { await client.tool('set_develop_settings', {photo_id: id, settings: plan.target}); } catch (e) { error = e; }
+  // TonePilot's plug-in names the History step; the MCP bridge takes no name.
+  const history = client.kind === 'tonepilot' ? {history: 'TonePilot restore'} : {};
+  try { await client.tool('set_develop_settings', {photo_id: id, settings: plan.target, ...history}); } catch (e) { error = e; }
   if (error?.kind === 'closed') return {unresolved: true, error};
   const deadline = Date.now() + (error?.kind === 'timeout' ? Math.min(SETTLE_MS, 20000) : 0);
   for (;;) {
