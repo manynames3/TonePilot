@@ -111,8 +111,8 @@ test('when the look, not a correction, moves exposure, the explanation says so',
 test('restoring relative white balance re-selects the original mode', () => {
   const base = {WhiteBalance: 'As Shot', IncrementalTemperature: 0, IncrementalTint: 0};
   const plan = restorePlan(base, {IncrementalTemperature: 10}, {...base, IncrementalTemperature: 10, WhiteBalance: 'Custom'});
-  assert.deepEqual(plan.target, {WhiteBalance: 'As Shot'});
-  assert.deepEqual(plan.verify, {IncrementalTemperature: 0, IncrementalTint: 0, WhiteBalance: 'As Shot'});
+  assert.deepEqual(plan.target, {IncrementalTemperature: 0, IncrementalTint: 0, WhiteBalance: 'As Shot'});
+  assert.deepEqual(plan.verify, plan.target);
 });
 
 const skinPhoto = (mode, verdict, t, i) => ({id: 'p', state: 'baselined',
@@ -194,4 +194,23 @@ test('when the AI and the measurement agree on direction, the measurement sets t
   assert.match(d.rationale.join(' '), /too magenta \(AI\); white surfaces measure magenta and cool .* amount set from the measurement/);
   const disagree = decideStrong(castPhoto({a: -2.6, b: 0}, {skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: -3, note: ''}}));
   assert.equal(disagree.changes.Tint, 9, 'measurement says green: the AI\'s own −3 stands');
+});
+
+test('any white-balance write also selects Custom, as Lightroom\'s own sliders do', () => {
+  const x = setup({photos: {101: rawPhoto('A.CR3')}, extra: {aiDefault: {skip: false, confidence: 0.95, scene: 's', illuminant: 'daylight',
+    mixedLighting: false, backlit: false, intent: 'none', skinCast: 'magenta', subjectExposure: 'ok', changes: [],
+    skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: -6, note: ''}, reason: 'magenta'}}});
+  try {
+    const dir = x.analyze(['101']);
+    assert.equal(x.run(['--mode', 'apply', '--session', dir, '--confirm']).status, 0);
+    const s = x.get().photos[101].settings;
+    assert.deepEqual([s.whiteBalance, s.tint], ['Custom', -1], 'tint 4 − 6×0.8 rounded, mode Custom');
+    assert.equal(x.get().writes[0].settings.WhiteBalance, 'Custom', 'sent in the same write');
+    assert.equal(x.show(dir).photos[0].state, 'applied');
+    assert.ok(!x.show(dir).photos[0].changes.some(c => c.key === 'WhiteBalance'), 'mode is not shown as a slider row');
+    assert.equal(x.run(['--mode', 'restore', '--session', dir, '--confirm']).status, 0);
+    const r = x.get().photos[101].settings;
+    assert.deepEqual([r.whiteBalance, r.tint, r.temperature], ['As Shot', 4, 5200]);
+    assert.equal(x.show(dir).status, 'restored');
+  } finally { x.cleanup(); }
 });

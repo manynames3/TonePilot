@@ -13,7 +13,7 @@ import {Journal} from './journal.mjs';
 import {loadSession, deriveStatus, listSessionDirs, sessionView, sessionSummary, writeViews} from './session.mjs';
 import {acquireLock, readLock, updateLock} from './lock.mjs';
 import {validateIDs, developmentView, identityOf, sameIdentity, diffSnapshot, classifyWrite, restorePlan,
-  classifyRestore, matches, validateSettings, capabilitiesOf, MAX_JOB_PHOTOS} from './guard.mjs';
+  classifyRestore, matches, validateSettings, capabilitiesOf, withWhiteBalanceMode, MAX_JOB_PHOTOS} from './guard.mjs';
 import {resolvePolicy} from './policy.mjs';
 import {loadLineage, originFor} from './lineage.mjs';
 import {groupScenes} from './scenes.mjs';
@@ -332,7 +332,7 @@ async function doApply(client) {
           continue;
         }
         let intended;
-        try { intended = validateSettings({origin: p.origin, baseline: cur.values, proposed: p.changes, enabled: s.config.enabled, caps: s.policy.caps}); }
+        try { intended = withWhiteBalanceMode(validateSettings({origin: p.origin, baseline: cur.values, proposed: p.changes, enabled: s.config.enabled, caps: s.policy.caps}), cur.values); }
         catch (e) { journal.append('photo-stale', {photo: id, reason: 'Blocked by safety limits: ' + e.message}); continue; }
         journal.append('write-intent', {photo: id, preValues: cur.values, preSnapshot: cur.snapshot, intended});
         const r = await performWrite(client, id, cur, intended);

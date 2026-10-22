@@ -3,8 +3,8 @@
 // State lives in TONEPILOT_MOCK_STATE so tests can inspect writes and simulate the
 // photographer editing in Lightroom between engine runs.
 //
-// White-balance behaviour mirrors Lightroom: writing Temperature/Tint switches the mode
-// to Custom; selecting a mode recomputes Temperature/Tint.
+// White-balance behaviour mirrors Lightroom's SDK: writing Temperature/Tint leaves the mode
+// label unchanged; selecting a mode recomputes Temperature/Tint.
 import fs from 'node:fs';
 
 const dbfile = process.env.TONEPILOT_MOCK_STATE;
@@ -36,7 +36,8 @@ function applySettings(photo, settings, faults) {
   for (const [key, value] of Object.entries(settings)) {
     if (key === 'WhiteBalance') continue;
     s[FIELDS[key]] = key === 'Exposure2012' && faults.roundExposure ? Math.round(value * 10) / 10 : value;
-    if (/^(Incremental)?(Temperature|Tint)$/.test(key) && 'whiteBalance' in s) s.whiteBalance = 'Custom';
+    // Like real Lightroom (observed Oct 22): a plug-in setting Temperature/Tint does NOT flip
+    // the WB mode; only the Develop UI does. The mode changes only when WhiteBalance is written.
   }
   if (faults.sideEffectOnWrite) s[faults.sideEffectOnWrite.field] = faults.sideEffectOnWrite.value;
 }
