@@ -71,6 +71,8 @@ Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced
 
 **Mutation checks.** Reintroducing v0.4 defect A1 (treat an in-flight restore as finished) fails *interrupted restore is never reported as restored*; reintroducing A4 (pre-write check on changed keys only) fails *an unrelated manual edit … makes only that photo stale*.
 
+**Bundled Node.js** (local build, October 22, 2026): `build.sh` bundled Node v22.23.4 after matching the SHA-256 in nodejs.org's `SHASUMS256.txt`. With no Node on `PATH` (`/usr/bin:/bin`), the bundled runtime ran `--mode sessions`; `--mode doctor` reported "Node 22.23.4 (bundled)", and with the app's `PATH` (bundled Node first) the Codex CLI, a Node script, passed its sign-in check. App size 31 MB → 138 MB. Under the hardened runtime (ad-hoc test signature) Node ran JIT code, WebAssembly and `fetch` with `allow-jit` alone and crashed on start without it. The app itself was not launched with the bundled runtime, and no Developer ID signing or notarization has run.
+
 **Analyzer self-test** (`TonePilotAnalyzer --selftest`, run by every build): mid-grey linearity, clip fractions, monotonic headroom curve, sRGB → CIELAB accuracy, grid descriptor.
 
 ## Engine scaling (synthetic, `node TonePilot/Benchmarks/scale.mjs`)

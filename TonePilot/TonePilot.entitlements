@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Hardened runtime, not App Sandbox: TonePilot must launch Node.js, the Codex CLI and
      talk to the Lightroom plug-in on localhost, which the sandbox would block.
-     No exceptions (JIT, unsigned memory, library validation) are requested. -->
+     No exceptions (JIT, unsigned memory, library validation) are requested; only the bundled
+     Node.js runtime gets JIT, through Node.entitlements. -->
 <plist version="1.0">
 <dict/>
 </plist>

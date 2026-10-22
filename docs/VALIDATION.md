@@ -55,7 +55,7 @@ TONEPILOT_SIGN_IDENTITY="Developer ID Application: …" TONEPILOT_APP_PATH=dist/
 TONEPILOT_NOTARY_PROFILE=tonepilot-notary ./TonePilot/notarize.sh dist/TonePilot.app
 ```
 
-Remaining before a normal photographer can install it: bundle a Node runtime, replace the Codex CLI dependency with a direct model API or account flow, and a guided plug-in installer.
+Remaining before a normal photographer can install it (Node.js is now bundled): replace the Codex CLI dependency with a direct model API or account flow, and a guided plug-in installer.
 
 ## G6 — repeatability
 

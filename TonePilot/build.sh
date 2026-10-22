@@ -7,6 +7,8 @@
 #                                             hardened-runtime build ready for notarize.sh
 #   TONEPILOT_BUNDLE_BRIDGE=0 ./TonePilot/build.sh
 #                                             skip bundling the Lightroom bridge (falls back to pinned npx)
+#   TONEPILOT_BUNDLE_NODE=0 ./TonePilot/build.sh
+#                                             skip bundling Node.js (the app then needs a system Node 18+)
 #
 # The app is staged in a temporary folder and only moved into place once every step,
 # including the analyzer self-test and signature verification, has succeeded.
@@ -19,6 +21,12 @@ APP="${TONEPILOT_APP_PATH:-$HOME/Applications/TonePilot.app}"
 SIGN_ID="${TONEPILOT_SIGN_IDENTITY:--}"
 BUNDLE_BRIDGE="${TONEPILOT_BUNDLE_BRIDGE:-1}"
 TARGET="arm64-apple-macos14.0"
+BUNDLE_NODE="${TONEPILOT_BUNDLE_NODE:-1}"
+# Official Node.js LTS build; the checksum is from nodejs.org/dist/$NODE_VERSION/SHASUMS256.txt.
+NODE_VERSION="v22.23.4"
+NODE_TARBALL="node-$NODE_VERSION-darwin-arm64.tar.xz"
+NODE_SHA256="037650d0839f457747396f052073fb48333d31bf5abd3c98b74da20d89ebb1ad"
+CACHE="$ROOT/.build"
 
 STAGE="$(mktemp -d /tmp/TonePilot-build.XXXXXX)"
 trap 'rm -rf "$STAGE"' EXIT
@@ -86,10 +94,28 @@ if [[ "$BUNDLE_BRIDGE" == "1" ]]; then
     if find "$RESOURCES/BridgeServer" -name "*.node" | grep -q .; then echo "Unexpected native module in bridge" >&2; exit 1; fi
 fi
 
+if [[ "$BUNDLE_NODE" == "1" ]]; then
+    # Only bin/node ships. The tarball is cached and verified against the pinned checksum on every build.
+    mkdir -p "$CACHE" "$CONTENTS/Helpers"
+    if [[ ! -f "$CACHE/$NODE_TARBALL" ]]; then
+        /usr/bin/curl -fsSL "https://nodejs.org/dist/$NODE_VERSION/$NODE_TARBALL" -o "$STAGE/$NODE_TARBALL"
+        mv "$STAGE/$NODE_TARBALL" "$CACHE/$NODE_TARBALL"
+    fi
+    if [[ "$(/usr/bin/shasum -a 256 "$CACHE/$NODE_TARBALL" | cut -d' ' -f1)" != "$NODE_SHA256" ]]; then
+        rm -f "$CACHE/$NODE_TARBALL"; echo "Node.js checksum mismatch; deleted the cached download" >&2; exit 1
+    fi
+    /usr/bin/tar -xJf "$CACHE/$NODE_TARBALL" -C "$CONTENTS/Helpers" --strip-components 2 "node-$NODE_VERSION-darwin-arm64/bin/node"
+    [[ "$("$CONTENTS/Helpers/node" --version)" == "$NODE_VERSION" ]] || { echo "Bundled Node.js failed to run" >&2; exit 1; }
+fi
+
 if [[ "$SIGN_ID" == "-" ]]; then
+    [[ -f "$CONTENTS/Helpers/node" ]] && /usr/bin/codesign --force --sign - "$CONTENTS/Helpers/node"
     /usr/bin/codesign --force --sign - "$CONTENTS/MacOS/TonePilotAnalyzer"
     /usr/bin/codesign --force --sign - "$OUT"
 else
+    # V8 needs JIT under the hardened runtime; only the Node binary gets that entitlement.
+    [[ -f "$CONTENTS/Helpers/node" ]] && /usr/bin/codesign --force --options runtime --timestamp \
+        --entitlements "$ROOT/Node.entitlements" --sign "$SIGN_ID" "$CONTENTS/Helpers/node"
     for bin in "$CONTENTS/MacOS/TonePilotAnalyzer" "$OUT"; do
         /usr/bin/codesign --force --options runtime --timestamp --entitlements "$ROOT/TonePilot.entitlements" --sign "$SIGN_ID" "$bin"
     done

@@ -1,6 +1,7 @@
 // Minimal MCP (JSON-RPC over stdio) client for the third-party Lightroom Classic bridge
 // (github.com/Automaat/lightroom-mcp). Only the engine may call its write tool.
 import {spawn} from 'node:child_process';
+import path from 'node:path';
 
 // The bridge version TonePilot was verified against. A floating `npx -y` would run
 // whatever npm serves today with write access to the catalog, so the server is either
@@ -33,7 +34,7 @@ export class LightroomMCP {
     if (this.proc) throw new Error('MCP client already connected');
     const home = process.env.HOME || '';
     const proc = spawn(this.command, this.args, {stdio: ['pipe', 'pipe', 'pipe'],
-      env: {...process.env, PATH: home + '/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}});
+      env: {...process.env, PATH: path.dirname(process.execPath) + ':' + home + '/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}});
     this.proc = proc;
     proc.stdout.on('data', chunk => this.onData(chunk));
     proc.stderr.on('data', chunk => { this.stderrTail = (this.stderrTail + String(chunk)).slice(-2000); });
