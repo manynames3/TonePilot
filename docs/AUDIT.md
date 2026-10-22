@@ -46,7 +46,7 @@ Audit of commit `c92a2b2` (v0.4.0), October 21–22, 2026. Findings are ranked b
 
 | # | Finding | v0.5 |
 |---|---|---|
-| D1 | About a third of the window was decorative (illustrated "looks", botanical rail, slogans). | Removed; dense native layout; light and dark. |
+| D1 | About a third of the window was decorative (illustrated "looks", botanical rail, slogans). | Decoration removed, 0.4's editorial identity kept: warm paper, serif display type, terracotta actions; the charcoal rail now carries navigation, sessions and connection status. (A first 0.5 build used stock macOS controls and followed system Dark Mode; it read as generic and was redone.) |
 | D2 | All-or-nothing apply. | Per-photo approval (checkbox, Space), approve all/none. |
 | D3 | No way to see original → proposed → read-back → restored values. | Shown per setting with verification state. |
 | D4 | Setup errors surfaced as one generic alert. | Setup checklist (12 checks incl. a live bridge handshake), each with a concrete fix. |

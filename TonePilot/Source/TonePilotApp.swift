@@ -9,11 +9,13 @@ struct TonePilotApp: App {
         WindowGroup("TonePilot", id: "main") {
             RootView()
                 .environmentObject(model)
-                .frame(minWidth: 980, minHeight: 640)
+                .frame(minWidth: 1040, minHeight: 720)
+                .preferredColorScheme(.light)
                 .tint(Theme.accent)
                 .task { await model.launch(); await Snapshot.runIfRequested(model) }
         }
-        .defaultSize(width: 1180, height: 800)
+        .defaultSize(width: 1200, height: 840)
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("New First Pass") { model.route = .newPass }.keyboardShortcut("n", modifiers: .command)
@@ -24,7 +26,7 @@ struct TonePilotApp: App {
                 Button("Stop After Current Photo") { model.stop() }.keyboardShortcut(".", modifiers: .command).disabled(!model.busy)
             }
         }
-        MenuBarExtra("TonePilot", systemImage: "camera.aperture") {
+        MenuBarExtra("TonePilot", systemImage: "circle.lefthalf.filled") {
             Button("Open TonePilot") {
                 NSApp.activate(ignoringOtherApps: true)
                 NSApp.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
@@ -38,16 +40,22 @@ struct TonePilotApp: App {
     }
 }
 
+// Charcoal rail for navigation and status on the left; warm paper canvas for the work.
 struct RootView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        NavigationSplitView {
-            Sidebar().navigationSplitViewColumnWidth(min: 250, ideal: 280, max: 340)
-        } detail: {
-            detail
-                .safeAreaInset(edge: .top, spacing: 0) { if let op = model.operation, op.kind != .doctor || model.doctor == nil { ProgressPanel(op: op) } }
+        HStack(spacing: 0) {
+            Rail().frame(width: 272)
+            VStack(spacing: 0) {
+                if let op = model.operation, op.kind != .doctor || model.doctor == nil { ProgressPanel(op: op) }
+                detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(Theme.paper)
         }
+        .background(Theme.paper)
+        .ignoresSafeArea(.container, edges: .top)
+        .foregroundStyle(Theme.ink)
         .alert(item: $model.notice) { n in Alert(title: Text(n.title), message: Text(n.message), dismissButton: .default(Text("OK"))) }
         .onExitCommand { model.stop() }
     }
@@ -60,122 +68,247 @@ struct RootView: View {
             if let summary = model.sessions.first(where: { $0.id == id }), summary.isLegacy { LegacySessionView(summary: summary) }
             else if let s = model.session, s.id == id { SessionDetailView(session: s).id(s.id + (s.updatedAt ?? "")) }
             else if let error = model.sessionError {
-                ScrollView {
-                    Callout(tone: .danger, systemImage: "doc.badge.ellipsis", title: "Session unavailable", message: error)
-                        .padding(28).frame(maxWidth: 700, alignment: .leading)
-                }
-            } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+                Page { Callout(tone: .danger, systemImage: "doc.badge.ellipsis", title: "This session can't be opened", message: error) }
+            } else { ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity) }
         }
     }
 }
 
-private struct Sidebar: View {
+// Scrolling paper page with consistent margins, used by every screen.
+struct Page<Content: View>: View {
+    var maxWidth: CGFloat = 820
+    @ViewBuilder var content: Content
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) { content }
+                .frame(maxWidth: maxWidth, alignment: .leading)
+                .padding(.horizontal, 40).padding(.top, 44).padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.automatic)
+    }
+}
+
+// MARK: Rail
+
+private struct Rail: View {
     @EnvironmentObject var model: AppModel
 
+    private var current: [SessionSummary] { model.sessions.filter { !$0.isLegacy && $0.attention != true && $0.status != "discarded" } }
+    private var legacy: [SessionSummary] { model.sessions.filter(\.isLegacy) }
+
     var body: some View {
-        List(selection: Binding<Route?>(get: { model.route }, set: { r in
-            guard let r else { return }
-            if case .session(let id) = r { Task { await model.open(id) } } else { model.route = r }
-        })) {
-            Section {
-                Label("New first pass", systemImage: "plus.circle").tag(Route.newPass)
-                Label { HStack { Text("Setup"); Spacer(); if model.doctor != nil && !model.ready { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger) } } }
-                    icon: { Image(systemName: "checklist") }.tag(Route.setup)
+        VStack(alignment: .leading, spacing: 0) {
+            brand.padding(.top, 46).padding(.bottom, 22)
+            Theme.cream.opacity(0.14).frame(height: 1)
+            VStack(alignment: .leading, spacing: 2) {
+                RailItem(title: "New first pass", systemImage: "plus.circle", selected: model.route == .newPass) { model.route = .newPass }
+                RailItem(title: "Setup", systemImage: "checklist", selected: model.route == .setup,
+                         badge: model.doctor != nil && !model.ready ? Theme.danger : nil) { model.route = .setup }
             }
-            if !model.attentionSessions.isEmpty {
-                Section("Needs attention") { ForEach(model.attentionSessions) { SessionRow(s: $0).tag(Route.session($0.id)) } }
-            }
-            Section("Sessions") {
-                let others = model.sessions.filter { $0.attention != true && $0.status != "discarded" }
-                if others.isEmpty && model.attentionSessions.isEmpty {
-                    Text("Your sessions appear here.").font(Theme.secondary).foregroundStyle(.secondary)
+            .padding(.vertical, 14)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !model.attentionSessions.isEmpty {
+                        RailHeading(text: "Needs attention", color: Theme.accentLight)
+                        ForEach(model.attentionSessions) { SessionRailRow(s: $0) }
+                    }
+                    RailHeading(text: "Sessions", color: Theme.railText)
+                    if current.isEmpty && model.attentionSessions.isEmpty {
+                        Text("Your first pass will appear here.").font(Theme.secondary).foregroundStyle(Theme.railText)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                    }
+                    ForEach(current) { SessionRailRow(s: $0) }
+                    if !legacy.isEmpty {
+                        RailHeading(text: "Earlier versions", color: Theme.railText.opacity(0.75))
+                        ForEach(legacy) { SessionRailRow(s: $0, dim: true) }
+                    }
                 }
-                ForEach(others) { SessionRow(s: $0).tag(Route.session($0.id)) }
+                .padding(.bottom, 12)
+            }
+            .scrollIndicators(.never)
+            Spacer(minLength: 0)
+            connection
+        }
+        .padding(.horizontal, 16)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Theme.rail)
+    }
+
+    private var brand: some View {
+        HStack(spacing: 12) {
+            Monogram().frame(width: 38, height: 38)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("TonePilot").font(Theme.serif(24, .bold)).tracking(-0.8).foregroundStyle(Theme.cream)
+                Text("FOR LIGHTROOM CLASSIC").font(.system(size: 10.5, weight: .bold)).tracking(1.3).foregroundStyle(Theme.accentLight)
+                    .lineLimit(1).fixedSize()
             }
         }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) { connection }
+        .padding(.horizontal, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("TonePilot for Lightroom Classic")
     }
 
     private var connection: some View {
         let live = model.doctor?.checks.first { $0.id == "live-bridge" }
-        return HStack(spacing: 8) {
-            Circle().fill(live?.ok == true ? Theme.verified : model.doctor == nil ? Theme.neutral : Theme.danger).frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(live?.ok == true ? "Lightroom connected" : model.doctor == nil ? "Not checked yet" : "Lightroom not connected").font(Theme.secondaryStrong)
-                if let d = live?.detail { Text(d).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
+        let ok = live?.ok == true
+        return VStack(alignment: .leading, spacing: 0) {
+            Theme.cream.opacity(0.14).frame(height: 1)
+            HStack(alignment: .top, spacing: 10) {
+                Circle().fill(ok ? Theme.verified : model.doctor == nil ? Theme.railText : Theme.danger).frame(width: 9, height: 9).padding(.top, 4)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ok ? "Lightroom connected" : model.doctor == nil ? "Checking Lightroom…" : "Lightroom not connected")
+                        .font(Theme.secondaryStrong).foregroundStyle(Theme.cream)
+                    if let d = live?.detail { Text(d).font(Theme.secondary).foregroundStyle(Theme.railText).lineLimit(2) }
+                }
+                Spacer(minLength: 4)
+                Button { Task { await model.checkSetup() } } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.accentLight)
+                        .frame(width: 28, height: 28).background(Theme.railRaised, in: Circle())
+                }
+                .buttonStyle(.plain).help("Check the Lightroom connection again").disabled(model.busy)
+                .accessibilityLabel("Check the Lightroom connection again")
             }
-            Spacer()
-            Button { Task { await model.checkSetup() } } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless).help("Check the Lightroom connection again").disabled(model.busy)
-        }
-        .padding(12)
-    }
-}
-
-// Same structure as the other screens (scroll view, no flexible spacer): a bare VStack
-// with a Spacer and fixed-size text here blanked the whole window on macOS 27.
-private struct LegacySessionView: View {
-    let summary: SessionSummary
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                StatusBadge(label: summary.label, tone: summary.attention == true ? .attention : .neutral)
-                Text(Format.date(summary.created)).font(Theme.title)
-                Text(summary.explanation ?? "").font(Theme.body).fixedSize(horizontal: false, vertical: true)
-                Text("TonePilot 0.5 keeps a crash-safe journal for every session. Older sessions are listed for reference only and can't be applied or restored from here.")
-                    .font(Theme.secondary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: summary.dir)]) }
-            }
-            .padding(28).frame(maxWidth: 760, alignment: .leading)
+            .padding(.vertical, 16).padding(.horizontal, 4)
         }
     }
 }
 
-private struct SessionRow: View {
-    let s: SessionSummary
+private struct RailHeading: View {
+    let text: String; let color: Color
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(Format.date(s.created)).font(Theme.bodyStrong).monospacedDigit()
+        Text(text.uppercased()).font(.system(size: 11.5, weight: .bold)).tracking(1.6).foregroundStyle(color)
+            .padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 4)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private struct RailItem: View {
+    let title: String; let systemImage: String; let selected: Bool
+    var badge: Color? = nil
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: systemImage).font(.system(size: 15, weight: .semibold)).frame(width: 20)
+                    .foregroundStyle(selected ? Theme.accentLight : Theme.railText)
+                Text(title).font(.system(size: 15, weight: selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? Theme.cream : Theme.cream.opacity(0.82))
                 Spacer()
-                if s.running != nil { ProgressView().controlSize(.small) }
+                if let badge { Circle().fill(badge).frame(width: 8, height: 8) }
             }
-            HStack(spacing: 6) {
-                Circle().fill(sessionTone(s.status).color).frame(width: 7, height: 7)
-                Text(s.label).font(Theme.secondary)
-                Text("· " + Format.plural(s.photoCount ?? 0, "photo")).font(Theme.secondary).foregroundStyle(.secondary)
-            }
+            .padding(.horizontal, 12).frame(height: 38)
+            .background(selected ? Theme.railRaised : .clear, in: RoundedRectangle(cornerRadius: 9))
+            .overlay(alignment: .leading) { if selected { Theme.accent.frame(width: 3, height: 18).clipShape(Capsule()) } }
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 }
+
+private struct SessionRailRow: View {
+    @EnvironmentObject var model: AppModel
+    let s: SessionSummary
+    var dim = false
+    private var selected: Bool { model.route == .session(s.id) }
+    var body: some View {
+        Button { Task { await model.open(s.id) } } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(Format.date(s.created)).font(Theme.serif(15)).monospacedDigit()
+                        .foregroundStyle(Theme.cream.opacity(dim ? 0.6 : 1))
+                    Spacer(minLength: 6)
+                    if s.running != nil { ProgressView().controlSize(.mini).tint(Theme.accentLight) }
+                    else { Text(Format.plural(s.photoCount ?? 0, "photo")).font(Theme.secondary).foregroundStyle(Theme.railText.opacity(dim ? 0.7 : 1)) }
+                }
+                HStack(spacing: 6) {
+                    Circle().fill(sessionTone(s.status).color).frame(width: 7, height: 7)
+                    Text(s.isLegacy ? "TonePilot 0.4 · no changes" : s.label).font(Theme.secondary).lineLimit(1)
+                }
+                .foregroundStyle(Theme.railText.opacity(dim ? 0.75 : 1))
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? Theme.railRaised : .clear, in: RoundedRectangle(cornerRadius: 9))
+            .overlay(alignment: .leading) { if selected { Theme.accent.frame(width: 3, height: 22).clipShape(Capsule()) } }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+// MARK: Progress
 
 private struct ProgressPanel: View {
     @EnvironmentObject var model: AppModel
     let op: Operation
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                if let f = op.fraction { ProgressView(value: f).frame(width: 140) } else { ProgressView().controlSize(.small) }
+            HStack(spacing: 16) {
+                ProgressView().controlSize(.small).tint(Theme.accent)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(op.title).font(Theme.bodyStrong)
+                    Text(op.title).font(Theme.serif(16)).foregroundStyle(Theme.ink)
                     if !op.detail.isEmpty {
-                        Text(op.detail + (op.index.map { i in op.total.map { " (\(i) of \($0))" } ?? "" } ?? ""))
-                            .font(Theme.secondary).foregroundStyle(.secondary).lineLimit(1)
+                        Text(op.detail + (op.index.map { i in op.total.map { " — \(i) of \($0)" } ?? "" } ?? ""))
+                            .font(Theme.secondary).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 Spacer()
                 if [.analyze, .apply, .restore].contains(op.kind) {
                     Button(op.stopping ? "Stopping…" : "Stop") { model.stop() }
-                        .disabled(op.stopping).help("Finishes the photo being written, then stops (Esc)")
+                        .buttonStyle(QuietButtonStyle()).disabled(op.stopping)
+                        .help("Finishes the photo being written, then stops (Esc)")
                 }
             }
-            .padding(.horizontal, 20).padding(.vertical, 10)
-            Divider()
+            .padding(.horizontal, 40).padding(.top, 34).padding(.bottom, 12)
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Theme.line
+                    Theme.accent.frame(width: g.size.width * (op.fraction ?? 0.08))
+                }
+            }
+            .frame(height: 3)
         }
-        .background(.bar)
+        .background(Theme.card)
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: Earlier-version session
+
+private struct LegacySessionView: View {
+    @EnvironmentObject var model: AppModel
+    let summary: SessionSummary
+    var body: some View {
+        Page(maxWidth: 680) {
+            SectionLabel(step: nil, title: "Earlier version")
+            Text("A TonePilot 0.4 session").font(Theme.display).tracking(-1.4).padding(.top, 10)
+            Text([Format.date(summary.created), Format.plural(summary.photoCount ?? 0, "photo"), summary.look, summary.strength]
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(Theme.body).foregroundStyle(Theme.muted).padding(.top, 6)
+            PaperCard {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: summary.attention == true ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(summary.attention == true ? Theme.attention : Theme.verified)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(summary.explanation ?? "").font(Theme.serif(17)).fixedSize(horizontal: false, vertical: true)
+                        Text("TonePilot 0.5 records every session in a crash-safe journal. Sessions from 0.4 are kept for reference and can't be applied or restored from here.")
+                            .font(Theme.secondary).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(.top, 22)
+            HStack(spacing: 12) {
+                Button { model.route = .newPass } label: { Label("Start a new first pass", systemImage: "arrow.right") }
+                    .buttonStyle(PrimaryButtonStyle()).labelStyle(TrailingIconLabelStyle())
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: summary.dir)]) }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+            .padding(.top, 18)
+        }
     }
 }

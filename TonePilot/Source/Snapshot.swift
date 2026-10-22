@@ -21,7 +21,7 @@ enum Snapshot {
         model.route = .newPass
         if model.selection == nil { await model.readSelection() }
         await capture(window, dir, "2-new-pass-\(appearance)")
-        for (i, s) in model.sessions.prefix(3).enumerated() {
+        for (i, s) in model.sessions.prefix(4).enumerated() {
             await model.open(s.id)
             await capture(window, dir, "3-session-\(i + 1)-\(appearance)")
         }
