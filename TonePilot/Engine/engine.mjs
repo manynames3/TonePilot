@@ -18,7 +18,7 @@ import {resolvePolicy} from './policy.mjs';
 import {loadLineage, originFor} from './lineage.mjs';
 import {groupScenes} from './scenes.mjs';
 import {decide} from './harmonize.mjs';
-import {buildPrompt, assessImage, pool} from './ai.mjs';
+import {buildPrompt, buildBatchPrompt, assessImage, assessBatch, BATCH_SIZE, pool} from './ai.mjs';
 import {runDoctor} from './doctor.mjs';
 import {ENGINE_VERSION} from './version.mjs';
 
@@ -34,6 +34,9 @@ const codexPath = process.env.TONEPILOT_CODEX || path.join(os.homedir(), '.local
 const SETTLE_MS = Number(process.env.TONEPILOT_SETTLE_MS ?? 60000);
 const PREVIEW_RETRY_MS = Number(process.env.TONEPILOT_PREVIEW_RETRY_MS ?? 1500);
 const AI_CONCURRENCY = Math.min(4, Math.max(1, Number(process.env.TONEPILOT_AI_CONCURRENCY) || 2));
+// Photos per model call. One by default: batched calls cost ~70% fewer tokens but have
+// not yet been shown to reach the same decisions on real multi-photo scenes (EVIDENCE.md).
+const AI_BATCH = Math.min(BATCH_SIZE, Math.max(1, Number(process.env.TONEPILOT_AI_BATCH) || 1));
 const PRESENT = new Set(['applied', 'apply-mismatch']);
 
 const emit = (type, fields = {}) => process.stdout.write(JSON.stringify({type, ...fields}) + '\n');
@@ -199,24 +202,50 @@ async function runAnalysis(client, journal, dir) {
       s = reload(dir);
     }
 
-    // 4. Model assessment, bounded parallelism, one private temp folder per call.
-    // Photos whose earlier attempt failed are retried when an analysis is resumed.
+    // 4. Model assessment: chunks of up to AI_BATCH photos from one lighting scene per call,
+    // bounded parallelism, one private temp folder per call. A chunk whose answer can't be
+    // matched to its photos is assessed again one photo per call. Photos whose earlier
+    // attempt failed are retried when an analysis is resumed.
     const todo = supported().filter(p => !p.ai);
     let done = supported().length - todo.length;
-    await pool(todo, AI_CONCURRENCY, async p => {
-      if (stopRequested) return;
-      const scene = s.scenes.find(sc => sc.photos.includes(p.id)) || {id: 'S?', photos: [p.id], reference: p.id};
-      try {
-        const jpeg = await fetchPreview(p.id);
-        const prompt = buildPrompt({photo: p, scene, policy: s.policy, enabled: s.config.enabled});
-        const r = await assessImage({jpeg, prompt, codex: codexPath,
-          onSpawn: c => { children.add(c); c.on('exit', () => children.delete(c)); }});
-        journal.append('photo-assessed', {photo: p.id, ai: r.assessment, stats: r.stats});
-      } catch (e) {
-        if (stopRequested) return;
-        journal.append('photo-assessed', {photo: p.id, error: String(e.message).slice(0, 200)});
-      }
+    const sceneOf = p => s.scenes.find(sc => sc.photos.includes(p.id)) || {id: 'S?', photos: [p.id], reference: p.id};
+    const chunks = [];
+    for (const p of todo) {
+      const last = chunks.at(-1);
+      if (last && last.length < AI_BATCH && sceneOf(last[0]) === sceneOf(p)) last.push(p); else chunks.push([p]);
+    }
+    const onSpawn = c => { children.add(c); c.on('exit', () => children.delete(c)); };
+    const record = (p, r) => {
+      journal.append('photo-assessed', r.error ? {photo: p.id, error: r.error} : {photo: p.id, ai: r.assessment, stats: r.stats});
       emit('progress', {step: 'assess', phase: 'Assessing light, skin and exposure', index: ++done, total: supported().length, filename: p.filename});
+    };
+    const assessOne = async p => {
+      try {
+        const prompt = buildPrompt({photo: p, scene: sceneOf(p), policy: s.policy, enabled: s.config.enabled});
+        return await assessImage({jpeg: await fetchPreview(p.id), prompt, codex: codexPath, onSpawn});
+      } catch (e) { return {error: String(e.message).slice(0, 200)}; }
+    };
+    await pool(chunks, AI_CONCURRENCY, async chunk => {
+      if (stopRequested) return;
+      const ready = [], jpegs = [];
+      for (const p of chunk) {
+        try { jpegs.push(await fetchPreview(p.id)); ready.push(p); }
+        catch (e) { record(p, {error: String(e.message).slice(0, 200)}); }
+      }
+      if (ready.length > 1) {
+        try {
+          const prompt = buildBatchPrompt({photos: ready, scene: sceneOf(ready[0]), policy: s.policy, enabled: s.config.enabled});
+          const results = await assessBatch({jpegs, prompt, codex: codexPath, onSpawn});
+          ready.forEach((p, i) => record(p, results[i]));
+          return;
+        } catch { /* fall back to one call per photo below */ }
+      }
+      for (const p of ready) {
+        if (stopRequested) return;
+        const r = await assessOne(p);
+        if (r.error && stopRequested) return;
+        record(p, r);
+      }
     });
     checkStop();
     s = reload(dir);

@@ -54,9 +54,25 @@ Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced
 
 **Lightroom preview reliability:** "error loading thumb" occurred on several real requests minutes apart for photos that previewed fine earlier; retries now absorb it.
 
+## AI cost: one call per photo vs scene batches (October 22, 2026, read-only)
+
+The user's selection was a single RAW (CR3) photo, so a real multi-photo scene could not be batched end to end. Four real `analyze` runs (two with `TONEPILOT_AI_BATCH=6`, two per photo) therefore all made one call per photo. The batch comparison used that photo's real Lightroom preview, sent through the engine's own `ai.mjs` and `harmonize.mjs` to the real Codex CLI: identical copies, and edited variants (−1 EV, +1 EV, warm cast, made with Core Image and measured by the real analyzer). Nothing was written; scratch sessions and previews were deleted afterwards.
+
+| | One call per photo | Batch of 6 in one call |
+|---|---|---|
+| Input tokens per photo | 21,130–28,270 (typically ~22,000; 18 calls) | 5,500–7,390 (mean ~6,050; 8 calls) — **about −72%** |
+| Model time per photo, sequential | 6.2–10.4 s (mean 8.3 s) | 17.8–25.3 s per call = 3.0–4.2 s per photo (mean 3.4 s) — **about −58%** |
+| Same photo repeated (4 real engine runs) | 4/4 same decision and settings | — |
+| Batch of identical copies vs per-photo answer | — | 36/36 within tolerance (±0.1 EV, ±100 K, ±3 tint) of a per-photo answer from the same run (6 calls) |
+| Batch mixing different variants vs per-photo answer | per-photo repeats stable: 3/3 for each variant | Every answer attached to the right image (under/ok/over 12/12), but only **6/12 within tolerance**: the −1 EV frame got +0.52–0.56 EV instead of +0.32–0.36; the warm frame −420 K / tint 0 instead of −325 K / tint +3…+4 |
+
+What this shows: batching removes most of Codex's fixed per-call prompt (~18,000 tokens on a trivial prompt) and the photo-to-answer mapping held. It also shows the model judges each image partly against the others in the same call, which changes magnitudes when frames differ. Whether that is better or worse is not measured. **Batching therefore stays off by default** (`TONEPILOT_AI_BATCH`, 1–6) until a real multi-photo scene shows equal decisions.
+
+Other findings: `-c model_reasoning_effort="low"` made no measurable difference (same tokens, 7.3–9.6 s vs 8.5–9.5 s per photo, same decisions; Codex's catalog lists `low` as the default model's default effort), so it is not used. For this CR3, Lightroom failed the 640, 1024 and 640 px preview requests ("error loading thumb") and the 320 px retry returned the full 5472 × 3648 image (3 MB). Preview fetching took ~20 s of each ~32 s run.
+
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-78 tests, all passing, ~18 s. No photos and no catalog are touched.
+84 tests, all passing, ~17 s. No photos and no catalog are touched.
 
 | Suite | Covers |
 |---|---|
@@ -65,6 +81,7 @@ Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced
 | `analysis.test.mjs` (13) | Capture-time parsing across locales; scene splits; reframing vs real light change; tiny faces and small previews; scene exposure matching; outlier frames; strength scaling and thresholds; highlight protection; WB drift sync; mixed light; looks incl. preserved low-key/silhouette and creative colour; skin-hue warnings; schema normalization |
 | `selection.test.mjs` (4) | Apply-time selection interlock: full reads O(n/N) (exact read counts asserted), a same-size swap stops the run within N photos and never writes outside the authorization, the rotating sample catches swaps early, reselecting resumes without double writes |
 | `whitebalance.test.mjs` (16) | Relative (JPEG/HEIC) white balance proposed, written, verified and restored to As Shot; honest skip when the bridge can't write or can't read it; scene blending; model prompt; exposure-and-WB-only scope; looks named in explanations; skin-tone verdicts in Kelvin and relative units; colour-science slider directions; measured casts corrected when the AI calls skin natural; measurement sets the amount when it agrees with the AI; deliberate warm light left alone |
+| `batch.test.mjs` (5) | Six photos of one scene in one model call, journaled per photo with shared-out token stats; a malformed batch answer falls back to one call per photo; batched and per-photo journals have the same records and decisions; a stopped batched analysis resumes without re-assessing finished photos; numbered batch prompt and strict schema |
 | `bridgepatch.test.mjs` (2) | Bridge patch adds exactly two keys with backups, idempotent, refuses other versions |
 | `bridge.test.mjs` (7) | Read-only selection, empty selection, over-limit selection, disconnected plug-in, unverified bridge version, pinned bridge, doctor completeness |
 | `benchmark.test.mjs` (7) | Wilson intervals, blind-scoring requirement, small samples never "validated", interval-based gates, per-skin-group and lighting breakdowns, calibration threshold, repeatability |

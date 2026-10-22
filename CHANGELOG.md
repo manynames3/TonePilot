@@ -2,6 +2,9 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
+## Unreleased
+- **Scene-batched AI assessment (opt-in, `TONEPILOT_AI_BATCH=2…6`).** Up to six photos of one lighting scene share one Codex call, with a per-photo fallback when the answer can't be matched to its photos. Measured on a real preview: about 72% fewer input tokens and 58% less model time per photo. It stays off by default because frames that differ in one call were judged against each other (6/12 decisions within tolerance of per-photo calls).
+
 ## 0.5.0 — developer preview (October 22, 2026)
 
 The 0.4 audit ([docs/AUDIT.md](docs/AUDIT.md)) found that recovery could fail silently, repeated runs could compound edits, and editing decisions were single-photo AI guesses. 0.5 rebuilds the engine, the editing logic and the app.
