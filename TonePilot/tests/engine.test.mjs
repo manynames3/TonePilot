@@ -48,10 +48,13 @@ test('guard: write outcomes are judged from read-back values only', () => {
 test('guard: restoring white balance puts the original mode back, not a Custom copy', () => {
   const after = {...base, Temperature: 5600, WhiteBalance: 'Custom'};
   const plan = restorePlan(base, {Temperature: 5600}, after);
-  assert.deepEqual(plan.target, {WhiteBalance: 'As Shot'});
-  assert.equal(plan.verify.Temperature, 5200); assert.equal(plan.verify.Tint, 4); assert.equal(plan.verify.WhiteBalance, 'As Shot');
+  assert.deepEqual(plan.target, {Temperature: 5200, Tint: 4, WhiteBalance: 'As Shot'}, 'mode and numbers together');
+  assert.deepEqual(plan.verify, plan.target);
   const custom = {...base, WhiteBalance: 'Custom'};
-  assert.deepEqual(restorePlan(custom, {Temperature: 5600}, {...custom, Temperature: 5600}).target, {Temperature: 5200});
+  assert.deepEqual(restorePlan(custom, {Temperature: 5600}, {...custom, Temperature: 5600}).target, {Temperature: 5200, Tint: 4, WhiteBalance: 'Custom'});
+  // A write that also set the mode to Custom restores the original mode.
+  const p2 = restorePlan(base, {WhiteBalance: 'Custom', Tint: 6}, {...base, Tint: 6, WhiteBalance: 'Custom'});
+  assert.equal(p2.target.WhiteBalance, 'As Shot'); assert.equal(p2.target.Tint, 4);
   const r = classifyRestore({plan, preSnapshot: {temperature: 5600, whiteBalance: 'Custom', tint: 4}, afterValues: base,
     afterSnapshot: {temperature: 5200, whiteBalance: 'As Shot', tint: 4}});
   assert.equal(r.outcome, 'restored');

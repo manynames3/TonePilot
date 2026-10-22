@@ -171,7 +171,8 @@ const KEY_LABEL = {Temperature: 'Temperature', Tint: 'Tint', IncrementalTemperat
   Shadows2012: 'Shadows', Whites2012: 'Whites', Blacks2012: 'Blacks', WhiteBalance: 'White balance'};
 
 function changeRows(p) {
-  const keys = new Set([...Object.keys(p.changes || {}), ...Object.keys(p.applied || {})]);
+  // The WB mode label is not a slider value; it's shown through the white-balance rows.
+  const keys = new Set([...Object.keys(p.changes || {}), ...Object.keys(p.applied || {})].filter(k => k !== 'WhiteBalance'));
   return [...keys].map(key => ({
     key, label: KEY_LABEL[key] || key,
     original: p.baseline?.[key] ?? null,

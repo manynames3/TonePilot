@@ -128,11 +128,23 @@ export function diffSnapshot(before, after) {
 
 // Fields a write may legitimately change. Setting a white-balance number flips the WB
 // mode to Custom; selecting a WB mode recomputes the white-balance numbers.
-function touchedFields(keys) {
+// settings: the values a write sets. Selecting a preset mode (As Shot, Auto, Daylight…)
+// recomputes the white-balance numbers; Custom keeps them.
+function touchedFields(settings) {
+  const keys = Object.keys(settings);
   const fields = new Set(keys.map(k => FIELD[k]));
   if (keys.some(k => WB_KEYS.includes(k))) fields.add('whiteBalance');
-  if (keys.includes('WhiteBalance')) for (const k of WB_KEYS) fields.add(FIELD[k]);
+  if ('WhiteBalance' in settings && settings.WhiteBalance !== 'Custom') for (const k of WB_KEYS) fields.add(FIELD[k]);
   return fields;
+}
+
+// Lightroom's SDK changes Temperature/Tint without updating the WB mode label (observed
+// on real Lightroom: Tint changed, mode still "As Shot"). Any white-balance write therefore
+// also selects Custom, in the same call, exactly as dragging the slider would.
+export function withWhiteBalanceMode(intended, current) {
+  const touchesWb = Object.keys(intended).some(k => WB_KEYS.includes(k));
+  if (!touchesWb || current.WhiteBalance === undefined || current.WhiteBalance === 'Custom') return intended;
+  return {WhiteBalance: 'Custom', ...intended};
 }
 
 // What a write actually did, judged only from values read back before and after it.
@@ -141,7 +153,7 @@ function touchedFields(keys) {
 //   mismatch    something changed, but not exactly as intended (needs review)
 export function classifyWrite({preValues, preSnapshot, intended, afterValues, afterSnapshot}) {
   const keys = Object.keys(intended);
-  const allowed = touchedFields(keys);
+  const allowed = touchedFields(intended);
   const unexpected = diffSnapshot(preSnapshot, afterSnapshot).filter(f => !allowed.has(f));
   const mismatched = keys.filter(k => !valuesEqual(k, intended[k], afterValues[k]));
   const unchanged = keys.every(k => valuesEqual(k, preValues[k], afterValues[k])) &&
@@ -152,34 +164,25 @@ export function classifyWrite({preValues, preSnapshot, intended, afterValues, af
   return {outcome, mismatched, unexpected};
 }
 
-// Restoring white balance must also put the WB mode back. Writing a number would leave
-// the mode at Custom, so a non-Custom original mode is restored by mode alone and the
-// numbers are then verified. Same for Kelvin (RAW) and relative (JPEG/HEIC) values.
+// Restore writes the original values TonePilot changed. When white balance was touched it
+// writes the original WB mode together with the original numbers in one call (Lightroom's
+// SDK neither flips nor reliably recomputes the mode on its own), then verifies all of them.
 export function restorePlan(baseline, applied, afterValues) {
   const keys = Object.keys(applied);
-  const expected = {}, target = {};
+  const expected = {}, target = {}, verify = {};
   for (const k of keys) {
     if (!(k in baseline)) throw new Error('Missing original value for ' + k);
     expected[k] = afterValues[k];
+    target[k] = baseline[k];
+    verify[k] = baseline[k];
   }
   const wbTouched = keys.some(k => WB_KEYS.includes(k));
-  const wbModeChanged = wbTouched && baseline.WhiteBalance !== undefined && afterValues.WhiteBalance !== baseline.WhiteBalance;
-  if (wbModeChanged) {
+  if (wbTouched && baseline.WhiteBalance !== undefined) {
     if (!WB_MODES.includes(baseline.WhiteBalance)) throw new Error('Unknown original white balance mode');
     expected.WhiteBalance = afterValues.WhiteBalance;
+    target.WhiteBalance = verify.WhiteBalance = baseline.WhiteBalance;
+    for (const k of WB_KEYS) if (typeof baseline[k] === 'number' && k in afterValues) { target[k] = baseline[k]; verify[k] = baseline[k]; }
   }
-  for (const k of keys) {
-    if (wbModeChanged && baseline.WhiteBalance !== 'Custom' && WB_KEYS.includes(k)) continue;
-    target[k] = baseline[k];
-  }
-  const verify = {};
-  for (const k of keys) verify[k] = baseline[k];
-  if (wbModeChanged) {
-    target.WhiteBalance = baseline.WhiteBalance;
-    // Re-selecting the mode recomputes both numbers; both must come back exactly.
-    for (const k of WB_KEYS) if (typeof baseline[k] === 'number') verify[k] = baseline[k];
-  }
-  if (wbTouched && baseline.WhiteBalance !== undefined) verify.WhiteBalance = baseline.WhiteBalance;
   return {target, expected, verify};
 }
 
@@ -189,7 +192,7 @@ export function matches(expected, values) {
 
 export function classifyRestore({plan, preSnapshot, afterValues, afterSnapshot}) {
   const wrong = matches(plan.verify, afterValues);
-  const allowed = touchedFields([...Object.keys(plan.verify), ...Object.keys(plan.target)]);
+  const allowed = touchedFields({...plan.verify, ...plan.target});
   const unexpected = diffSnapshot(preSnapshot, afterSnapshot).filter(f => !allowed.has(f));
   if (!wrong.length && !unexpected.length) return {outcome: 'restored', wrong, unexpected};
   if (!matches(plan.expected, afterValues).length && !diffSnapshot(preSnapshot, afterSnapshot).length)
