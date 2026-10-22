@@ -82,6 +82,8 @@ if [[ "$BUNDLE_BRIDGE" == "1" ]]; then
     mkdir -p "$RESOURCES/BridgeServer"
     cp "$ROOT/BridgeServer/package.json" "$ROOT/BridgeServer/package-lock.json" "$RESOURCES/BridgeServer/"
     (cd "$RESOURCES/BridgeServer" && npm ci --ignore-scripts --omit=dev --no-audit --no-fund --loglevel=error)
+    # TonePilot edition: accept Lightroom's relative white balance (JPEG/HEIC/TIFF).
+    node "$ROOT/BridgePatch/patch-bridge.mjs" --apply --server "$RESOURCES/BridgeServer/node_modules/@mskalski/lightroom-mcp/dist" >/dev/null
     if find "$RESOURCES/BridgeServer" -name "*.node" | grep -q .; then echo "Unexpected native module in bridge" >&2; exit 1; fi
 fi
 
