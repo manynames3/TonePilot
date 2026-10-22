@@ -36,7 +36,7 @@ Mac app ──args──▶ engine.mjs ──MCP/stdio──▶ Lightroom bridge
 | `policy.mjs` | Looks and strengths as numbers |
 | `scenes.mjs` | Lighting-scene segmentation and reference frames |
 | `harmonize.mjs` | Scene-consistent, policy-bounded decisions |
-| `ai.mjs` | Prompt, strict output schema, Codex subprocess, bounded pool |
+| `ai.mjs` | Prompt, strict output schema, Codex subprocess (one photo, or an opt-in batch of one scene's photos), bounded pool |
 | `lightroom.mjs` | MCP client; pinned/bundled bridge; typed errors; apply-time selection interlock (`SelectionGuard`) |
 | `doctor.mjs` | Diagnostics |
 | `Analyzer.swift` | On-device measurements of Lightroom-rendered previews |
@@ -69,4 +69,4 @@ Photo states: `pending → baselined → proposed | skipped | flagged | unsuppor
 
 ## Environment
 
-`TONEPILOT_RUNS_DIR`, `TONEPILOT_CODEX`, `TONEPILOT_ANALYZER`, `TONEPILOT_MCP_SERVER` (bundled bridge), `TONEPILOT_PARENT_PID`, `TONEPILOT_SETTLE_MS`, `TONEPILOT_AI_CONCURRENCY` (1–4, default 2), `TONEPILOT_WRITE_TIMEOUT_MS`, `TONEPILOT_SELECTION_FULL_EVERY` (default 25). Tests also use `TONEPILOT_NPX` / `TONEPILOT_MCP_ARGS` to substitute the mock bridge.
+`TONEPILOT_RUNS_DIR`, `TONEPILOT_CODEX`, `TONEPILOT_ANALYZER`, `TONEPILOT_MCP_SERVER` (bundled bridge), `TONEPILOT_PARENT_PID`, `TONEPILOT_SETTLE_MS`, `TONEPILOT_AI_CONCURRENCY` (1–4, default 2), `TONEPILOT_AI_BATCH` (photos per model call, 1–6, default 1; see EVIDENCE.md), `TONEPILOT_WRITE_TIMEOUT_MS`, `TONEPILOT_SELECTION_FULL_EVERY` (default 25). Tests also use `TONEPILOT_NPX` / `TONEPILOT_MCP_ARGS` to substitute the mock bridge.
