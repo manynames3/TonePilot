@@ -11,6 +11,7 @@
 // same light is enforced.
 import {mired, kelvin} from './policy.mjs';
 import {validateSettings, roundSetting} from './guard.mjs';
+import {measuredCast, correctionForCast, relativeCorrectionForCast, describeCast} from './colour.mjs';
 
 const TONE_KEYS = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'];
 const KEEP_INTENT = new Set(['low-key', 'high-key', 'silhouette']);
@@ -260,6 +261,18 @@ function decideTone(scene, eligible, policy, out) {
 function skinToneLine(p, d) {
   const st = p.ai.skinTone, relative = p.capabilities?.wbMode === 'relative';
   const wbChanged = ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint'].some(k => k in d.changes);
+  const ev = p.wbEvidence;
+  if (ev?.source === 'measured' || ev?.source === 'deliberate') {
+    const what = ev.cast.source + ' measure ' + describeCast(ev.cast) + ' (a* ' + signed(ev.cast.a, 1) + ', b* ' + signed(ev.cast.b, 1) + ')';
+    const ai = st?.verdict === 'correct' ? 'Skin judged natural by the AI, but ' : '';
+    if (ev.source === 'deliberate') return ai + what + ' — kept, the light colour looks deliberate.';
+    return ai + what + (wbChanged ? ' — corrected from the measurement.' : ' — too small to change.');
+  }
+  if (ev?.source === 'ai+measured') {
+    return 'Skin tone ' + st.verdict.replaceAll('-', ' ') + ' (AI); ' + ev.cast.source + ' measure ' + describeCast(ev.cast) + ' (a* ' + signed(ev.cast.a, 1) +
+      ', b* ' + signed(ev.cast.b, 1) + ')' + (wbChanged ? ' — amount set from the measurement.' : ' — too small to change.');
+  }
+  if (!st) return 'White balance checked — nothing to change.';
   if (st.verdict === 'correct') return 'Skin tone judged natural — white balance left as shot.';
   if (st.verdict === 'no-skin') return 'No skin visible — white balance follows the scene only.';
   if (st.verdict === 'mixed-light') return 'Mixed light on skin — white balance left for you to judge.';
@@ -286,17 +299,46 @@ function skinHueWarnings(scenePhotos, out) {
 const VERDICT_CAST = {'too-warm': 'too-warm', 'too-cool': 'too-cool', 'too-green': 'green', 'too-magenta': 'magenta',
   'too-warm-and-green': 'green', 'too-warm-and-magenta': 'magenta', 'too-cool-and-green': 'green', 'too-cool-and-magenta': 'magenta'};
 
-// The model's mandatory skin-tone verdict carries the white-balance shift it wants.
-// Turn it into absolute proposals in the photo's own units (Kelvin for RAW, relative
-// steps for JPEG/HEIC/TIFF); everything after this is the usual scene + policy logic.
+// White-balance evidence, in priority order:
+//   1. the model's skin-tone verdict with a non-zero shift;
+//   2. otherwise a cast measured on bright neutral surfaces (white clothing, trim, sky),
+//      converted to slider moves by colour science (colour.mjs) —
+//   unless the light colour is deliberate (golden hour/tungsten warmth, creative colour,
+//   mixed light). Both become absolute proposals in the photo's own units (Kelvin for
+//   RAW, relative steps for JPEG/HEIC/TIFF); scene + policy logic takes it from there.
 export function withSkinTone(p) {
-  const st = p.ai?.skinTone;
-  if (!st || !p.capabilities?.wb || !(st.verdict in VERDICT_CAST)) return p;
+  if (!p.capabilities?.wb || !p.ai) return p;
+  const st = p.ai.skinTone;
+  if (st?.verdict === 'mixed-light' || p.ai.mixedLighting) return p;
+  const relative = p.capabilities.wbMode === 'relative';
+  const [tKey, iKey] = relative ? ['IncrementalTemperature', 'IncrementalTint'] : ['Temperature', 'Tint'];
+  if (typeof p.baseline[tKey] !== 'number' || typeof p.baseline[iKey] !== 'number') return p;
   const proposed = {...p.ai.proposed};
-  const [tKey, iKey] = p.capabilities.wbMode === 'relative' ? ['IncrementalTemperature', 'IncrementalTint'] : ['Temperature', 'Tint'];
-  if (st.temperatureShift && typeof p.baseline[tKey] === 'number') proposed[tKey] = p.baseline[tKey] + st.temperatureShift;
-  if (st.tintShift && typeof p.baseline[iKey] === 'number') proposed[iKey] = p.baseline[iKey] + st.tintShift;
-  return {...p, ai: {...p.ai, proposed, skinCast: VERDICT_CAST[st.verdict]}};
+  const cast = measuredCast(p.metrics);
+  const deliberate = !!cast && (p.ai.intent === 'creative-colour' || (['golden-hour', 'tungsten'].includes(p.ai.illuminant) && cast.b > 0));
+  let measured = null;
+  if (cast && !deliberate) {
+    const c = relative ? relativeCorrectionForCast(cast) : correctionForCast(cast, p.baseline.Temperature);
+    measured = {[tKey]: relative ? c.temperature : c.kelvin, [iKey]: c.tint};
+  }
+  const aiShift = st && st.verdict in VERDICT_CAST ? {[tKey]: st.temperatureShift || 0, [iKey]: st.tintShift || 0} : null;
+  if (aiShift && (aiShift[tKey] || aiShift[iKey])) {
+    // The model is reliable about direction, noisy about size: where the measurement
+    // agrees on direction it sets the amount; otherwise the model's own number stands.
+    let usedMeasurement = false;
+    for (const k of [tKey, iKey]) {
+      if (!aiShift[k]) continue;
+      const agree = measured && Math.sign(measured[k]) === Math.sign(aiShift[k]) && Math.abs(measured[k]) > Math.abs(aiShift[k]);
+      proposed[k] = p.baseline[k] + (agree ? measured[k] : aiShift[k]);
+      usedMeasurement ||= !!agree;
+    }
+    return {...p, ai: {...p.ai, proposed, skinCast: VERDICT_CAST[st.verdict]},
+      wbEvidence: {source: usedMeasurement ? 'ai+measured' : 'ai', cast}};
+  }
+  if (!cast) return p;
+  if (deliberate) return {...p, wbEvidence: {source: 'deliberate', cast}};
+  for (const k of [tKey, iKey]) proposed[k] = p.baseline[k] + measured[k];
+  return {...p, ai: {...p.ai, proposed}, wbEvidence: {source: 'measured', cast}};
 }
 
 // photos: [{id, state, baseline, origin, capabilities, metrics, ai, aiError}]; scenes from groupScenes.
@@ -329,7 +371,7 @@ export function decide({photos: input, scenes, policy, enabled}) {
     skinHueWarnings(members, out);
     for (const p of eligible) {
       const d = out[p.id];
-      if (d.allow.wb && p.ai.skinTone) d.rationale.push(skinToneLine(p, d));
+      if (d.allow.wb && (p.ai.skinTone || p.wbEvidence)) d.rationale.push(skinToneLine(p, d));
       delete d.allow;
       if (!Object.keys(d.changes).length) {
         d.status = 'skipped';

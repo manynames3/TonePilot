@@ -19,6 +19,7 @@ console.log(JSON.stringify({
   clip: {white: clip / 2, channel: clip, deepShadow: 0.01},
   clipAtEV: fx.clipAtEV || Array.from({length: 20}, (_, i) => clip + (i + 1) * 0.0005),
   grid: fx.grid || Array(48).fill(50),
+  neutral: fx.neutral || {a: 0, b: 0, fraction: 0.2}, whites: fx.whites || {a: 0, b: 0, fraction: 0.05},
   faces: luma ? [{luma, lumaSRGB: 0.5, hue: fx.hue ?? 55, chroma: 20, area: 0.04}] : [],
   persons: luma ? 1 : 0,
   subject: luma ? {method: 'face', luma, lumaSRGB: 0.5, count: 1, area: 0.04} : {method: 'none'},

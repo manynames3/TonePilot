@@ -145,3 +145,53 @@ test('natural skin and too-small shifts are explained, never silent', () => {
   assert.match(tiny.rationale.join(' '), /below the smallest change/);
   assert.equal(withSkinTone(skinPhoto('kelvin', 'mixed-light', 300, 0)).ai.proposed.Temperature, undefined, 'mixed light never converted');
 });
+
+test('colour science: casts map to the right slider directions', async () => {
+  const {correctionForCast} = await import('../Engine/colour.mjs');
+  const cool = correctionForCast({a: 0, b: -3}, 5000), warm = correctionForCast({a: 0, b: 3}, 5000);
+  const magenta = correctionForCast({a: 3, b: 0}, 5000), green = correctionForCast({a: -3, b: 0}, 5000);
+  assert.ok(cool.kelvin > 100 && warm.kelvin < -100, 'cool → raise Kelvin, warm → lower');
+  assert.ok(magenta.tint < -5 && green.tint > 5, 'magenta → less tint, green → more');
+  const boys = correctionForCast({a: 2.6, b: -1.05}, 4800);   // measured on a real photo
+  assert.ok(boys.tint < -6 && boys.tint > -9 && Math.abs(boys.kelvin) < 150, JSON.stringify(boys));
+});
+
+const castPhoto = (whites, ai = {}) => ({id: 'p', state: 'baselined',
+  capabilities: {supported: true, wb: true, wbMode: 'kelvin', exposure: true, tone: true},
+  baseline: {WhiteBalance: 'As Shot', Temperature: 4950, Tint: 12, Exposure2012: 0},
+  origin: null, metrics: {width: 960, height: 640, whites: {...whites, fraction: 0.4}, neutral: {a: 0, b: 0, fraction: 0.5}},
+  ai: {skip: false, confidence: 0.92, intent: 'none', illuminant: 'daylight', mixedLighting: false, skinCast: 'none', subjectExposure: 'ok', proposed: {},
+    skinTone: {verdict: 'correct', temperatureShift: 0, tintShift: 0, note: ''}, reason: 'r', ...ai}});
+const decideStrong = p => decide({photos: [p], scenes: [{id: 'S1', photos: ['p'], flash: false}],
+  policy: resolvePolicy('Natural', 'Stronger'), enabled: {wb: true, exposure: true, tone: false}}).p;
+
+test('a measured magenta/cool cast is corrected even when the AI calls the skin natural', () => {
+  const d = decideStrong(castPhoto({a: 3.4, b: -2.66}));
+  assert.ok(d.changes.Tint <= 3, 'tint pulled from 12 toward green: ' + d.changes.Tint);
+  assert.match(d.rationale.join(' '), /Skin judged natural by the AI, but white surfaces measure magenta and cool \(a\* \+3\.4, b\* -2\.7\) — corrected from the measurement\./);
+});
+
+test('deliberate warm light and tiny casts are left alone, with the reason shown', () => {
+  const golden = decideStrong(castPhoto({a: 0.5, b: 4}, {illuminant: 'golden-hour'}));
+  assert.ok(!('Temperature' in golden.changes) && !('Tint' in golden.changes));
+  assert.match(golden.rationale.join(' '), /kept, the light colour looks deliberate/);
+  const tiny = decideStrong(castPhoto({a: 0.6, b: -0.7}));
+  assert.ok(!('Tint' in tiny.changes));
+});
+
+test('HEIC casts are corrected in relative steps', () => {
+  const p = castPhoto({a: 3, b: -2});
+  p.capabilities.wbMode = 'relative';
+  p.baseline = {WhiteBalance: 'As Shot', IncrementalTemperature: 0, IncrementalTint: 0, Exposure2012: 0};
+  const d = decideStrong(p);
+  assert.ok(d.changes.IncrementalTint < 0, JSON.stringify(d.changes));
+  assert.ok(!('Tint' in d.changes));
+});
+
+test('when the AI and the measurement agree on direction, the measurement sets the amount', () => {
+  const d = decideStrong(castPhoto({a: 2.6, b: -1.05}, {skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: -3, note: ''}}));
+  assert.ok(d.changes.Tint <= 12 - 6, 'measured ≈ −7.6, not the AI\'s −3: ' + d.changes.Tint);
+  assert.match(d.rationale.join(' '), /too magenta \(AI\); white surfaces measure magenta and cool .* amount set from the measurement/);
+  const disagree = decideStrong(castPhoto({a: -2.6, b: 0}, {skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: -3, note: ''}}));
+  assert.equal(disagree.changes.Tint, 9, 'measurement says green: the AI\'s own −3 stands');
+});

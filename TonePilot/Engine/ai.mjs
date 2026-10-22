@@ -62,6 +62,7 @@ export function buildPrompt({photo, scene, policy, enabled}) {
     // a*/b* of near-neutral areas (positive b* = yellow/warm, negative a* = green).
     faceSkin: m.faces?.[0] ? {hueDeg: Math.round(m.faces[0].hue), chroma: Math.round(m.faces[0].chroma)} : null,
     neutralAreasCast: m.neutral ? {a: m.neutral.a, b: m.neutral.b, shareOfFrame: m.neutral.fraction} : null,
+    whiteSurfacesCast: m.whites ? {a: m.whites.a, b: m.whites.b, shareOfFrame: m.whites.fraction} : null,
     highlightClippedFraction: m.clip?.channel ?? null,
     deepShadowFraction: m.clip?.deepShadow ?? null,
     medianBrightness_sRGB: m.luma?.median ?? null
@@ -70,7 +71,9 @@ export function buildPrompt({photo, scene, policy, enabled}) {
   const skinTask = 'SKIN TONE (required, every photo): look at the skin of the main people and decide whether its colour is natural for that person under this light. ' +
     'Set skinTone.verdict, and set temperatureShift/tintShift to the white-balance change that would make the skin look natural — use 0 and 0 when it already does. ' +
     'Do not put white-balance settings in changes; skinTone carries them. Respect each person\'s own complexion and purposeful warm light (golden hour, candlelight). ' +
-    'Use verdict "mixed-light" when different light colours fall on the skin and "no-skin" when no skin is visible (both with 0 shifts).';
+    'Use verdict "mixed-light" when different light colours fall on the skin and "no-skin" when no skin is visible (both with 0 shifts). ' +
+    'Use the measured whiteSurfacesCast (CIELAB of white clothing/trim; neutral is a*=b*=0): a* above +1.5 means magenta, below −1.5 green; b* below −1.5 cool, above +1.5 warm. ' +
+    'Do not answer "correct" when that measurement shows a visible cast, unless the light colour is clearly deliberate.';
   const wbNote = !enabled.wb ? 'White balance is disabled: set skinTone shifts to 0.'
     : wbMode === 'relative'
       ? skinTask + ' Units for this JPEG/HEIC/TIFF file: Lightroom relative steps (−100…+100 scale; 0 = as shot). +temperatureShift = warmer, −temperatureShift = cooler, +tintShift = more magenta, −tintShift = more green. Typical natural-skin corrections are 3–15.'

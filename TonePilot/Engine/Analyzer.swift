@@ -60,6 +60,9 @@ func globalStats(_ px: Pixels) -> [String: Any] {
     var lumas = [Double](); lumas.reserveCapacity(px.width * px.height)
     var white = 0, channel = 0, shadow = 0, neutralCount = 0
     var neutralA = 0.0, neutralB = 0.0, meanLinear = 0.0
+    // Bright, nearly colourless surfaces (white clothing, trim, overcast sky): a stricter
+    // white-balance reference than all low-chroma pixels, which include beige and grey-brown.
+    var whiteA = 0.0, whiteB = 0.0, whiteCount = 0
     var headroom = [Int](repeating: 0, count: 20)   // pixels that clip within k*0.05 EV
     var grid = [Double](repeating: 0, count: 16 * 3), gridN = [Int](repeating: 0, count: 16)
     for y in 0..<px.height {
@@ -82,7 +85,9 @@ func globalStats(_ px: Pixels) -> [String: Any] {
             grid[c * 3] += lr; grid[c * 3 + 1] += lg; grid[c * 3 + 2] += lb; gridN[c] += 1
             if ls > 0.3 && ls < 0.95 {
                 let lab = labFromLinear(lr, lg, lb)
-                if hypot(lab.a, lab.b) < 8 { neutralA += lab.a; neutralB += lab.b; neutralCount += 1 }
+                let chroma = hypot(lab.a, lab.b)
+                if chroma < 8 { neutralA += lab.a; neutralB += lab.b; neutralCount += 1 }
+                if chroma < 6 && ls > 0.6 && ls < 0.97 { whiteA += lab.a; whiteB += lab.b; whiteCount += 1 }
             }
         }
     }
@@ -104,6 +109,9 @@ func globalStats(_ px: Pixels) -> [String: Any] {
         "neutral": ["a": round4(neutralCount > 0 ? neutralA / Double(neutralCount) : 0),
                     "b": round4(neutralCount > 0 ? neutralB / Double(neutralCount) : 0),
                     "fraction": round4(Double(neutralCount) / total)],
+        "whites": ["a": round4(whiteCount > 0 ? whiteA / Double(whiteCount) : 0),
+                   "b": round4(whiteCount > 0 ? whiteB / Double(whiteCount) : 0),
+                   "fraction": round4(Double(whiteCount) / total)],
         "grid": gridLab
     ]
 }
