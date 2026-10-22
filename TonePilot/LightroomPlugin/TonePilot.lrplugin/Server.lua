@@ -54,13 +54,16 @@ local function writeBridgeFile(token)
     local folder, path = bridgeFile()
     LrFileUtils.createAllDirectories(folder)
     LrTasks.execute("/bin/chmod 700 " .. quote(folder))
+    local function write(target)
+        local fh = assert(io.open(target, "w"))
+        fh:write(JSON.encode({ version = 1, plugin = Actions.version, requestPort = REQUEST_PORT,
+            responsePort = RESPONSE_PORT, token = token }))
+        fh:close()
+        if LrTasks.execute("/bin/chmod 600 " .. quote(target)) ~= 0 then error("Could not restrict " .. target, 0) end
+    end
     local temp = path .. ".tmp"
-    local fh = assert(io.open(temp, "w"))
-    fh:write(JSON.encode({ version = 1, plugin = Actions.version, requestPort = REQUEST_PORT,
-        responsePort = RESPONSE_PORT, token = token }))
-    fh:close()
-    if LrTasks.execute("/bin/chmod 600 " .. quote(temp)) ~= 0 then error("Could not restrict " .. temp, 0) end
-    assert(os.rename(temp, path))
+    write(temp)
+    if not (os.rename and os.rename(temp, path)) then write(path) end   -- no rename available: write in place
 end
 
 local function newToken()

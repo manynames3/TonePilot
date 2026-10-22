@@ -45,3 +45,5 @@ Record the results in `docs/EVIDENCE.md` before relying on the plug-in.
 ## Known limitation
 
 The token guards **requests** only. The response port is a fixed localhost port, so another process on this Mac that connects to it before the engine could read responses (photo metadata and previews), though it cannot make Lightroom do anything. The third-party MCP bridge has the same exposure. Fixing it needs responses tied to the token (for example, encrypted with it).
+
+Mixed bridges: a session analyzed through this plug-in and applied after a fallback to the stock MCP bridge compares only the fields both report. A hand change to a JPEG/HEIC photo's relative white balance in between is then not seen as an edit; TonePilot's write in that case can only be exposure or tone (the MCP bridge cannot write relative white balance), so no edit is overwritten.
