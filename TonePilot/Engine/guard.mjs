@@ -7,13 +7,17 @@ export const MAX_JOB_PHOTOS = 20;
 
 // Keys TonePilot may propose. WhiteBalance is never proposed: Lightroom switches it
 // to Custom by itself when Temperature/Tint change, and restore puts the original back.
+// RAW files use Kelvin Temperature/Tint; JPEG, HEIC and TIFF files use Lightroom's
+// relative IncrementalTemperature/IncrementalTint (−100…+100, 0 = as shot).
 export const ALLOW = Object.freeze({
-  Temperature: 'wb', Tint: 'wb', Exposure2012: 'exposure',
+  Temperature: 'wb', Tint: 'wb', IncrementalTemperature: 'wb', IncrementalTint: 'wb', Exposure2012: 'exposure',
   Highlights2012: 'tone', Shadows2012: 'tone', Whites2012: 'tone', Blacks2012: 'tone'
 });
+export const WB_KEYS = Object.freeze(['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint']);
 // Lightroom SDK key -> field name in the bridge's get_photo_metadata developSettings.
 export const FIELD = Object.freeze({
   WhiteBalance: 'whiteBalance', Temperature: 'temperature', Tint: 'tint',
+  IncrementalTemperature: 'incrementalTemperature', IncrementalTint: 'incrementalTint',
   Exposure2012: 'exposure', Highlights2012: 'highlights', Shadows2012: 'shadows',
   Whites2012: 'whites', Blacks2012: 'blacks'
 });
@@ -21,11 +25,11 @@ export const WB_MODES = Object.freeze(['As Shot', 'Auto', 'Daylight', 'Cloudy', 
   'Tungsten', 'Fluorescent', 'Flash', 'Custom']);
 
 const RANGE = {
-  Temperature: [2000, 50000], Tint: [-150, 150], Exposure2012: [-5, 5],
+  Temperature: [2000, 50000], Tint: [-150, 150], IncrementalTemperature: [-100, 100], IncrementalTint: [-100, 100], Exposure2012: [-5, 5],
   Highlights2012: [-100, 100], Shadows2012: [-100, 100], Whites2012: [-100, 100], Blacks2012: [-100, 100]
 };
 // Read-back tolerance: Lightroom stores some values as float32.
-const TOLERANCE = {Temperature: 1.5, Tint: 0.6, Exposure2012: 0.006,
+const TOLERANCE = {Temperature: 1.5, Tint: 0.6, IncrementalTemperature: 0.6, IncrementalTint: 0.6, Exposure2012: 0.006,
   Highlights2012: 0.6, Shadows2012: 0.6, Whites2012: 0.6, Blacks2012: 0.6};
 
 export function validateIDs(ids, max = MAX_JOB_PHOTOS) {
@@ -44,7 +48,11 @@ export function roundSetting(key, value) {
 function delta(key, from, to) {
   return key === 'Temperature' ? Math.abs(mired(to) - mired(from)) : Math.abs(to - from);
 }
-function capFor(key, caps) { return key === 'Temperature' ? caps.TemperatureMired : caps[key]; }
+function capFor(key, caps) {
+  if (key === 'Temperature') return caps.TemperatureMired;
+  if (key === 'IncrementalTint') return caps.Tint;
+  return caps[key];
+}
 
 // origin: the photo's values before ANY TonePilot session touched them (see lineage.mjs).
 // baseline: the values at the start of this session. Both limits apply.
@@ -118,12 +126,12 @@ export function diffSnapshot(before, after) {
   return changed.sort();
 }
 
-// Fields a write may legitimately change. Setting Temperature/Tint flips the WB mode to
-// Custom; setting a WB mode recomputes both Temperature and Tint.
+// Fields a write may legitimately change. Setting a white-balance number flips the WB
+// mode to Custom; selecting a WB mode recomputes the white-balance numbers.
 function touchedFields(keys) {
   const fields = new Set(keys.map(k => FIELD[k]));
-  if (keys.includes('Temperature') || keys.includes('Tint')) fields.add('whiteBalance');
-  if (keys.includes('WhiteBalance')) { fields.add('temperature'); fields.add('tint'); }
+  if (keys.some(k => WB_KEYS.includes(k))) fields.add('whiteBalance');
+  if (keys.includes('WhiteBalance')) for (const k of WB_KEYS) fields.add(FIELD[k]);
   return fields;
 }
 
@@ -144,9 +152,9 @@ export function classifyWrite({preValues, preSnapshot, intended, afterValues, af
   return {outcome, mismatched, unexpected};
 }
 
-// Restoring Temperature/Tint must also put the white-balance mode back. Writing a
-// numeric Temperature would leave the mode at Custom, so a non-Custom original mode is
-// restored by mode alone and the numbers are then verified.
+// Restoring white balance must also put the WB mode back. Writing a number would leave
+// the mode at Custom, so a non-Custom original mode is restored by mode alone and the
+// numbers are then verified. Same for Kelvin (RAW) and relative (JPEG/HEIC) values.
 export function restorePlan(baseline, applied, afterValues) {
   const keys = Object.keys(applied);
   const expected = {}, target = {};
@@ -154,14 +162,14 @@ export function restorePlan(baseline, applied, afterValues) {
     if (!(k in baseline)) throw new Error('Missing original value for ' + k);
     expected[k] = afterValues[k];
   }
-  const wbTouched = keys.includes('Temperature') || keys.includes('Tint');
+  const wbTouched = keys.some(k => WB_KEYS.includes(k));
   const wbModeChanged = wbTouched && baseline.WhiteBalance !== undefined && afterValues.WhiteBalance !== baseline.WhiteBalance;
   if (wbModeChanged) {
     if (!WB_MODES.includes(baseline.WhiteBalance)) throw new Error('Unknown original white balance mode');
     expected.WhiteBalance = afterValues.WhiteBalance;
   }
   for (const k of keys) {
-    if (wbModeChanged && baseline.WhiteBalance !== 'Custom' && (k === 'Temperature' || k === 'Tint')) continue;
+    if (wbModeChanged && baseline.WhiteBalance !== 'Custom' && WB_KEYS.includes(k)) continue;
     target[k] = baseline[k];
   }
   const verify = {};
@@ -169,7 +177,7 @@ export function restorePlan(baseline, applied, afterValues) {
   if (wbModeChanged) {
     target.WhiteBalance = baseline.WhiteBalance;
     // Re-selecting the mode recomputes both numbers; both must come back exactly.
-    for (const k of ['Temperature', 'Tint']) if (typeof baseline[k] === 'number') verify[k] = baseline[k];
+    for (const k of WB_KEYS) if (typeof baseline[k] === 'number') verify[k] = baseline[k];
   }
   if (wbTouched && baseline.WhiteBalance !== undefined) verify.WhiteBalance = baseline.WhiteBalance;
   return {target, expected, verify};
@@ -189,14 +197,21 @@ export function classifyRestore({plan, preSnapshot, afterValues, afterSnapshot})
   return {outcome: 'restore-mismatch', wrong, unexpected};
 }
 
-const NON_RAW_WB = 'White balance is not adjustable for this file type: Lightroom stores relative (Incremental) Temperature/Tint for JPEG, HEIC and TIFF files, and the Lightroom bridge cannot write those.';
-export function capabilitiesOf(meta, values) {
+const NON_RAW_WB = 'White balance was left unchanged: for JPEG, HEIC and TIFF files Lightroom stores relative (Incremental) Temperature/Tint, which the installed Lightroom bridge cannot read or write.';
+const NO_INCREMENTAL_WRITE = 'White balance was left unchanged: the Lightroom bridge reports relative (Incremental) Temperature/Tint for this file but does not accept writing them.';
+// writable: Develop keys the bridge's write tool accepts (null when unknown, which is
+// treated as "cannot write" for the relative white-balance keys).
+export function capabilitiesOf(meta, values, writable = null) {
   const format = String(meta.fileFormat || '').toUpperCase();
   if (format === 'VIDEO') return {supported: false, reason: 'Video files are not edited by TonePilot.'};
   const exposure = typeof values.Exposure2012 === 'number';
   const tone = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'].every(k => typeof values[k] === 'number');
   if (!exposure && !tone) return {supported: false, reason: 'This photo uses a legacy Lightroom process version. Update it to the current process version in Lightroom first.'};
-  const wb = typeof values.Temperature === 'number' && typeof values.Tint === 'number';
-  return {supported: true, exposure, tone, wb, format,
-    wbNote: wb ? null : format === 'RAW' || format === 'DNG' ? 'Lightroom did not report numeric white balance for this RAW file.' : NON_RAW_WB};
+  const kelvin = typeof values.Temperature === 'number' && typeof values.Tint === 'number';
+  const relative = typeof values.IncrementalTemperature === 'number' && typeof values.IncrementalTint === 'number';
+  const relativeWritable = !!writable?.has('IncrementalTemperature') && !!writable?.has('IncrementalTint');
+  const wbMode = kelvin ? 'kelvin' : relative && relativeWritable ? 'relative' : null;
+  const wbNote = wbMode ? null : relative ? NO_INCREMENTAL_WRITE
+    : format === 'RAW' || format === 'DNG' ? 'Lightroom did not report numeric white balance for this RAW file.' : NON_RAW_WB;
+  return {supported: true, exposure, tone, wb: !!wbMode, wbMode, format, wbNote};
 }

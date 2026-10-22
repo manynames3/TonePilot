@@ -28,9 +28,22 @@ The user's existing selection of five iPhone HEIC photos from one outdoor family
 
 What this shows: the read path, capability detection, measurement and planning work on real files at pilot scale, and the model's categorical judgments were stable while its numbers were not — which is why v0.5 uses measurements and scene medians for magnitudes. What it does not show: anything about RAW files (none in this selection, so the white-balance path has never run on real data), multiple scenes, or edit quality.
 
+## First real writes (October 22, 2026 — run by the owner in the app)
+
+Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced plan to 3 of the same 5 HEIC photos in their own catalog.
+
+| Check | Result |
+|---|---|
+| Writes | 3 photos, one write each (Exposure; Exposure + Shadows; Shadows + Blacks) |
+| Read-back verification | **3/3 verified**: intended values present, no other visible Develop field changed |
+| Write + read-back time | 50–250 ms per photo |
+| After-edit checks | 1 photo: Lightroom had no new preview yet ("error loading thumb"); 1 photo: face brightness rose 0.57 EV against an expected +0.10 EV, because the check predicted from Exposure alone while Shadows +10 also lifted the shaded faces (the check now skips frames whose tone sliders also changed) |
+| Restore on real photos | **Not yet exercised** |
+| White balance | **Not written**: the installed bridge cannot read or write Lightroom's relative white balance (`IncrementalTemperature/Tint`) used by HEIC/JPEG, confirmed from its published write schema |
+
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-59 tests, all passing, ~16 s. No photos and no catalog are touched.
+67 tests, all passing, ~17 s. No photos and no catalog are touched.
 
 | Suite | Covers |
 |---|---|
@@ -38,6 +51,7 @@ What this shows: the read path, capability detection, measurement and planning w
 | `recovery.test.mjs` (16) | Engine SIGKILLed after a write lands / before it lands; settle window; interrupted restore; manual edits after apply; bridge exits mid-apply; timeouts that land late / never; plug-in errors; rounding and side-effect mismatches; selection change mid-apply; app quit mid-apply; concurrent engines; torn and damaged journals; stopped-and-resumed analysis; AI outage fails resumably and retries |
 | `analysis.test.mjs` (13) | Capture-time parsing across locales; scene splits; reframing vs real light change; tiny faces and small previews; scene exposure matching; outlier frames; strength scaling and thresholds; highlight protection; WB drift sync; mixed light; looks incl. preserved low-key/silhouette and creative colour; skin-hue warnings; schema normalization |
 | `selection.test.mjs` (4) | Apply-time selection interlock: full reads O(n/N) (exact read counts asserted), a same-size swap stops the run within N photos and never writes outside the authorization, the rotating sample catches swaps early, reselecting resumes without double writes |
+| `whitebalance.test.mjs` (8) | Relative (JPEG/HEIC) white balance proposed, written, verified and restored to As Shot; honest skip when the bridge can't write or can't read it; scene blending with outliers; model prompt; exposure-and-white-balance-only scope; explanations that name the look |
 | `bridge.test.mjs` (7) | Read-only selection, empty selection, over-limit selection, disconnected plug-in, unverified bridge version, pinned bridge, doctor completeness |
 | `benchmark.test.mjs` (7) | Wilson intervals, blind-scoring requirement, small samples never "validated", interval-based gates, per-skin-group and lighting breakdowns, calibration threshold, repeatability |
 

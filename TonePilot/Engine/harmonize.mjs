@@ -16,7 +16,7 @@ const TONE_KEYS = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'];
 const KEEP_INTENT = new Set(['low-key', 'high-key', 'silhouette']);
 export const LIMITS = Object.freeze({
   sceneDisagreementEV: 1.0, wbDeadbandMired: 3, wbOutlierMired: 15, wbDriftMired: 8,
-  tintDeadband: 2, toneDeadband: 3, skinHueWarnDeg: 10, minFaceLuma: 0.002,
+  tintDeadband: 2, toneDeadband: 3, skinHueWarnDeg: 10, minFaceLuma: 0.002, relativeWbAgreement: 8,
   // A face must be big enough in a big enough preview to be measured reliably. Real
   // Lightroom previews can come back smaller than requested (416 px was observed).
   minFaceArea: 0.004, minPreviewEdge: 500
@@ -97,13 +97,16 @@ function decideExposure(scene, eligible, policy, out) {
       d.warnings.push('Judged differently from the rest of this scene; its own assessment was used.');
     let ev = null, why;
     const face = faceLuma(p);
+    // Name the look when it, not a correction, is what moves exposure.
+    const look = policy.exposureBiasEV ? ', including the ' + policy.look + ' look (' + signed(policy.exposureBiasEV, 1) + ' EV target)' : '';
     if (target !== null && face && !outliers.includes(p.id)) {
       ev = Math.log2(target / face);
-      why = 'Face brightness matched to the scene (' + agreeing.length + ' agreeing frame' + (agreeing.length > 1 ? 's' : '') + ')';
+      why = 'Face brightness matched to the scene (' + agreeing.length + ' agreeing frame' + (agreeing.length > 1 ? 's' : '') + look + ')';
     } else if (aiExposureEV(p) !== null) {
       ev = aiExposureEV(p) + policy.exposureBiasEV;
       const s = p.metrics?.subject;
-      why = 'Per-photo assessment' + (face ? '' : s?.method === 'face' ? ' (face too small to measure reliably)' : ' (no face found)');
+      why = (aiExposureEV(p) === 0 && policy.exposureBiasEV ? policy.look + ' look brightens subjects (exposure was judged correct)'
+        : 'Per-photo assessment' + look) + (face ? '' : s?.method === 'face' ? ' — face too small to measure reliably' : ' — no face found');
     }
     if (ev === null) continue;
     ev *= policy.fraction;
@@ -137,7 +140,8 @@ function decideExposure(scene, eligible, policy, out) {
 }
 
 function decideWhiteBalance(scene, eligible, policy, out) {
-  const wb = eligible.filter(p => out[p.id].allow.wb);
+  decideRelativeWhiteBalance(eligible.filter(p => out[p.id].allow.wb && p.capabilities?.wbMode === 'relative'), policy, out);
+  const wb = eligible.filter(p => out[p.id].allow.wb && p.capabilities?.wbMode !== 'relative');
   if (!wb.length) return;
   const aiTemps = wb.filter(p => typeof p.ai.proposed?.Temperature === 'number');
   const aiTints = wb.filter(p => typeof p.ai.proposed?.Tint === 'number');
@@ -188,6 +192,40 @@ function decideWhiteBalance(scene, eligible, policy, out) {
           d.rationale.push('Tint ' + signed(v - p.baseline.Tint, 0) + (p.ai.skinCast === 'green' || p.ai.skinCast === 'magenta' ? ' to reduce a ' + p.ai.skinCast + ' skin cast.' : ' for scene consistency.'));
         }
       }
+    }
+  }
+}
+
+// JPEG/HEIC/TIFF white balance is relative to each frame's own as-shot rendering
+// (IncrementalTemperature/Tint, 0 = as shot), so there is no common Kelvin to sync to.
+// Each frame keeps its own assessed correction; within a scene, corrections that agree
+// are blended toward their median so the same light gets the same treatment.
+function decideRelativeWhiteBalance(photos, policy, out) {
+  for (const [key, cap, words] of [['IncrementalTemperature', policy.caps.IncrementalTemperature, ['warmer', 'cooler']],
+                                    ['IncrementalTint', policy.caps.Tint, ['more magenta', 'more green']]]) {
+    const own = p => typeof p.ai.proposed?.[key] === 'number' ? p.ai.proposed[key] - p.baseline[key] : null;
+    const proposals = photos.map(own).filter(x => x !== null);
+    const sceneDelta = proposals.length >= 2 ? median(proposals) : null;
+    for (const p of photos) {
+      const d = out[p.id], mine = own(p);
+      if (mine === null) continue;
+      let delta = mine;
+      if (sceneDelta !== null) {
+        if (Math.abs(mine - sceneDelta) <= LIMITS.relativeWbAgreement) delta = (mine + sceneDelta) / 2;
+        else d.warnings.push('This frame\'s colour was judged differently from the rest of its scene; its own correction was used.');
+      }
+      delta *= policy.fraction;
+      if (Math.abs(delta) < LIMITS.tintDeadband) continue;
+      const base = p.baseline[key], origin = p.origin?.[key] ?? base;
+      const [lo, hi] = boundsAround(base, origin, cap);
+      const v = roundSetting(key, clamp(base + delta, lo, hi));
+      if (v === base) continue;
+      d.changes[key] = v;
+      const cast = key === 'IncrementalTint' && (p.ai.skinCast === 'green' || p.ai.skinCast === 'magenta') ? ' to reduce a ' + p.ai.skinCast + ' skin cast'
+        : key === 'IncrementalTemperature' && (p.ai.skinCast === 'too-cool' || p.ai.skinCast === 'too-warm') ? ' — skin looked ' + p.ai.skinCast.replace('too-', 'too ') : '';
+      d.rationale.push('White balance ' + (key === 'IncrementalTint' ? 'tint ' : '') + words[v > base ? 0 : 1] + ' by ' + Math.abs(v - base) + cast +
+        (sceneDelta !== null && Math.abs(mine - sceneDelta) <= LIMITS.relativeWbAgreement ? ' (consistent with its scene)' : '') + '.');
+      if (Math.abs(v - (base + delta)) > 0.5) d.rationale.push('White balance limited by the ' + policy.strength + ' cap.');
     }
   }
 }

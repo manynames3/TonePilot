@@ -166,7 +166,8 @@ export function listSessionDirs(runs) {
 
 // ---- Views for the Mac app and the plain-text report ----
 
-const KEY_LABEL = {Temperature: 'Temperature', Tint: 'Tint', Exposure2012: 'Exposure', Highlights2012: 'Highlights',
+const KEY_LABEL = {Temperature: 'Temperature', Tint: 'Tint', IncrementalTemperature: 'Temperature', IncrementalTint: 'Tint',
+  Exposure2012: 'Exposure', Highlights2012: 'Highlights',
   Shadows2012: 'Shadows', Whites2012: 'Whites', Blacks2012: 'Blacks', WhiteBalance: 'White balance'};
 
 function changeRows(p) {

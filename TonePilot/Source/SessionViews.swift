@@ -235,8 +235,12 @@ struct PhotoCard: View {
                     StatusPill(label: photo.stateLabel, tone: photoTone(photo.state))
                 }
                 if !photo.changes.isEmpty { ChangeTable(changes: photo.changes, state: photo.state) }
+                // Lead with what TonePilot decided and why; the AI's view is supporting evidence.
+                if !photo.changes.isEmpty, let lead = photo.rationale.first {
+                    Text(lead).font(Theme.secondaryStrong).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
+                }
                 if !photo.reason.isEmpty {
-                    Text(photo.reason).font(Theme.secondary).foregroundStyle(Theme.muted)
+                    Text((photo.changes.isEmpty ? "" : "AI assessment: ") + photo.reason).font(Theme.secondary).foregroundStyle(Theme.muted)
                         .lineLimit(disclosure.open ? nil : 2).fixedSize(horizontal: false, vertical: true)
                 }
                 if let conflict = photo.restoreConflict {
@@ -279,7 +283,9 @@ struct PhotoCard: View {
 
     @ViewBuilder private var details: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(photo.rationale, id: \.self) { Label($0, systemImage: "arrow.right.circle").font(Theme.secondary).foregroundStyle(Theme.ink) }
+            ForEach(photo.changes.isEmpty ? photo.rationale : Array(photo.rationale.dropFirst()), id: \.self) {
+                Label($0, systemImage: "arrow.right.circle").font(Theme.secondary).foregroundStyle(Theme.ink)
+            }
             ForEach(photo.warnings.filter { !hidden.contains($0) }, id: \.self) {
                 Label($0, systemImage: "exclamationmark.circle").font(Theme.secondary).foregroundStyle(Theme.attention)
             }

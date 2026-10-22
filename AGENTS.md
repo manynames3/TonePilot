@@ -9,7 +9,7 @@ TonePilot is a **Lightroom Classic companion**. It is not a RAW editor, catalog 
 - Journal first: `write-intent` / `restore-intent` must be fsync'd before the Lightroom call; results come only from read-back values.
 - Session status is derived from photo states (`session.mjs`). Never store or emit a status the photo states don't support.
 - Never overwrite a photographer's edit: stale photos are skipped; restore only touches TonePilot's own keys while they still hold TonePilot's values.
-- Writable keys: Temperature, Tint (RAW only), Exposure2012, Highlights2012, Shadows2012, Whites2012, Blacks2012. WhiteBalance only to restore an original mode. Nothing else.
+- Writable keys: Temperature, Tint (RAW), IncrementalTemperature, IncrementalTint (JPEG/HEIC/TIFF, only when the bridge accepts them), Exposure2012, Highlights2012, Shadows2012, Whites2012, Blacks2012. WhiteBalance only to restore an original mode. Nothing else.
 - Limits are cumulative from each photo's origin (`lineage.mjs`). Model output is never permission to exceed them.
 - The Lightroom bridge is pinned (`BridgeServer/package-lock.json`, `TESTED_BRIDGE_VERSION`). Upgrading it means re-running gate G1.
 - Never use a sandbox-bypass flag. Never run real writes outside `tests/live/sandbox-cycle.mjs` on a backed-up sandbox catalog with the owner's explicit approval.
@@ -18,7 +18,8 @@ TonePilot is a **Lightroom Classic companion**. It is not a RAW editor, catalog 
 ## Truthfulness
 
 - Keep [docs/EVIDENCE.md](docs/EVIDENCE.md) the source of every claim, with real / simulated / not-measured kept apart.
-- As of v0.5.0: real read-only analysis on 5 HEIC photos; zero real writes; no RAW data; no quality benchmark; no time-savings evidence; model confidence uncalibrated.
+- As of v0.5.0: real read-only analysis on 5 HEIC photos; 3 real writes made by the owner, all verified (restore not yet exercised on real photos); no RAW data; no quality benchmark; no time-savings evidence; model confidence uncalibrated.
+- White balance on JPEG/HEIC needs a bridge that accepts `IncrementalTemperature`/`IncrementalTint`; stock bridge 0.24.1 does not. Never modify the third-party bridge or plug-in without the owner's explicit approval.
 - Public screenshots use synthetic demo sessions (`tests/demo-sessions.mjs`), never client photos, filenames or AI descriptions of them.
 
 ## Workflow

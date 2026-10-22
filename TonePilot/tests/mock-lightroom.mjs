@@ -11,6 +11,7 @@ const dbfile = process.env.TONEPILOT_MOCK_STATE;
 const load = () => JSON.parse(fs.readFileSync(dbfile, 'utf8'));
 const save = obj => fs.writeFileSync(dbfile, JSON.stringify(obj, null, 1));
 const FIELDS = {Exposure2012: 'exposure', Tint: 'tint', Temperature: 'temperature', WhiteBalance: 'whiteBalance',
+  IncrementalTemperature: 'incrementalTemperature', IncrementalTint: 'incrementalTint',
   Highlights2012: 'highlights', Shadows2012: 'shadows', Whites2012: 'whites', Blacks2012: 'blacks', Contrast2012: 'contrast'};
 const PRESET_K = {Daylight: 5500, Cloudy: 6500, Shade: 7500, Tungsten: 2850, Fluorescent: 3800, Flash: 5500};
 
@@ -19,17 +20,23 @@ const respond = (id, result) => out({jsonrpc: '2.0', id, result});
 const text = (id, obj) => respond(id, {content: [{type: 'text', text: JSON.stringify(obj)}]});
 const error = (id, message) => respond(id, {isError: true, content: [{type: 'text', text: message}]});
 
+// Relative white balance (JPEG/HEIC/TIFF) is only accepted when the "bridge" advertises it.
+const RELATIVE_WB = process.env.TONEPILOT_MOCK_NO_RELATIVE_WB !== '1';
+const WRITABLE = Object.keys(FIELDS).filter(k => RELATIVE_WB || !k.startsWith('Incremental'));
+
 function applySettings(photo, settings, faults) {
   const s = photo.settings;
+  const relative = 'incrementalTemperature' in s;
   if ('WhiteBalance' in settings) {
     s.whiteBalance = settings.WhiteBalance;
-    if (settings.WhiteBalance === 'As Shot' || settings.WhiteBalance === 'Auto') { s.temperature = photo.asShot.temperature; s.tint = photo.asShot.tint; }
+    if (relative) { if (settings.WhiteBalance === 'As Shot') { s.incrementalTemperature = 0; s.incrementalTint = 0; } }
+    else if (settings.WhiteBalance === 'As Shot' || settings.WhiteBalance === 'Auto') { s.temperature = photo.asShot.temperature; s.tint = photo.asShot.tint; }
     else if (PRESET_K[settings.WhiteBalance]) { s.temperature = PRESET_K[settings.WhiteBalance]; s.tint = 0; }
   }
   for (const [key, value] of Object.entries(settings)) {
     if (key === 'WhiteBalance') continue;
     s[FIELDS[key]] = key === 'Exposure2012' && faults.roundExposure ? Math.round(value * 10) / 10 : value;
-    if ((key === 'Temperature' || key === 'Tint') && 'whiteBalance' in s) s.whiteBalance = 'Custom';
+    if (/^(Incremental)?(Temperature|Tint)$/.test(key) && 'whiteBalance' in s) s.whiteBalance = 'Custom';
   }
   if (faults.sideEffectOnWrite) s[faults.sideEffectOnWrite.field] = faults.sideEffectOnWrite.value;
 }
@@ -37,6 +44,11 @@ function applySettings(photo, settings, faults) {
 function handle(msg) {
   const {id} = msg;
   if (msg.method === 'initialize') return respond(id, {protocolVersion: '2025-03-26', serverInfo: {name: 'tonepilot-mock', version: process.env.TONEPILOT_MOCK_BRIDGE_VERSION || '0.24.1'}, capabilities: {}});
+  if (msg.method === 'tools/list') {
+    return respond(id, {tools: [{name: 'set_develop_settings', inputSchema: {type: 'object', properties: {
+      photo_id: {type: 'string'}, settings: {type: 'object', additionalProperties: false,
+        properties: Object.fromEntries(WRITABLE.map(k => [k, {type: 'number'}]))}}}}]});
+  }
   if (msg.method !== 'tools/call') return error(id, 'Unknown method');
   const name = msg.params.name, args = msg.params.arguments || {};
   const data = load();
@@ -70,7 +82,7 @@ function handle(msg) {
     const pid = String(args.photo_id);
     const p = data.photos[pid];
     if (!p) return error(id, 'Photo not found: ' + pid);
-    for (const key of Object.keys(args.settings)) if (!FIELDS[key]) return error(id, 'Unsupported develop setting key: ' + key);
+    for (const key of Object.keys(args.settings)) if (!WRITABLE.includes(key)) return error(id, 'Unsupported develop setting key: ' + key);
     data.writeCount = (data.writeCount || 0) + 1;
     const n = data.writeCount;
     const apply = () => { applySettings(p, args.settings, faults); data.writes.push({id: pid, settings: args.settings, n}); };

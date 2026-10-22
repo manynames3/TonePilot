@@ -11,7 +11,8 @@ export const ILLUMINANTS = ['daylight', 'open-shade', 'overcast', 'golden-hour',
 export const INTENTS = ['none', 'low-key', 'high-key', 'silhouette', 'creative-colour'];
 export const SKIN_CASTS = ['none', 'green', 'magenta', 'too-warm', 'too-cool', 'unknown', 'no-skin'];
 export const SUBJECT_EXPOSURE = ['under', 'ok', 'over', 'no-subject'];
-const SETTINGS = ['Temperature', 'Tint', 'Exposure2012', 'Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'];
+const SETTINGS = ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint', 'Exposure2012',
+  'Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'];
 
 // Strict structured-output schema: every property required, no extras.
 export const ASSESSMENT_SCHEMA = {
@@ -28,7 +29,7 @@ export const ASSESSMENT_SCHEMA = {
     intent: {type: 'string', enum: INTENTS},
     skinCast: {type: 'string', enum: SKIN_CASTS},
     subjectExposure: {type: 'string', enum: SUBJECT_EXPOSURE},
-    changes: {type: 'array', maxItems: 7, items: {type: 'object', additionalProperties: false,
+    changes: {type: 'array', maxItems: 9, items: {type: 'object', additionalProperties: false,
       required: ['setting', 'value'], properties: {setting: {type: 'string', enum: SETTINGS}, value: {type: 'number'}}}},
     reason: {type: 'string', maxLength: 300}
   }
@@ -46,12 +47,21 @@ export function buildPrompt({photo, scene, policy, enabled}) {
     subjectMeasuredBy: m.subject?.method || 'none',
     faceCount: m.faces?.length || 0,
     subjectBrightness_sRGB: m.subject?.lumaSRGB ?? null,
+    // Colour evidence: CIELAB of the largest face's skin (hue angle, chroma) and the mean
+    // a*/b* of near-neutral areas (positive b* = yellow/warm, negative a* = green).
+    faceSkin: m.faces?.[0] ? {hueDeg: Math.round(m.faces[0].hue), chroma: Math.round(m.faces[0].chroma)} : null,
+    neutralAreasCast: m.neutral ? {a: m.neutral.a, b: m.neutral.b, shareOfFrame: m.neutral.fraction} : null,
     highlightClippedFraction: m.clip?.channel ?? null,
     deepShadowFraction: m.clip?.deepShadow ?? null,
     medianBrightness_sRGB: m.luma?.median ?? null
   } : 'unavailable';
-  const wbNote = enabled.wb && !photo.capabilities?.wb
-    ? 'White balance is NOT adjustable for this file (non-RAW); do not propose Temperature or Tint.' : '';
+  const wbMode = photo.capabilities?.wbMode;
+  const wbNote = !enabled.wb ? ''
+    : wbMode === 'relative'
+      ? 'White balance for this file is RELATIVE (JPEG/HEIC/TIFF): propose IncrementalTemperature and/or IncrementalTint, never Temperature or Tint. Scale −100…+100, 0 = as shot; +Temperature = warmer, −Temperature = cooler, +Tint = more magenta, −Tint = more green. Typical corrections are 3–15.'
+      : wbMode === 'kelvin'
+        ? 'White balance for this RAW file is in Kelvin: propose Temperature (K) and/or Tint; never the Incremental keys.'
+        : 'White balance is NOT adjustable for this file; do not propose any white-balance setting.';
   return [
     'You are assisting a professional wedding/portrait photographer with a conservative first pass in Lightroom Classic.',
     'Assess this Lightroom-rendered preview. Return only the JSON object required by the schema.',

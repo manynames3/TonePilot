@@ -5,7 +5,7 @@
 For portrait, family, wedding and event photographers who already know how to edit and are tired of fixing the same exposure and white-balance drift frame after frame. You select photos in Lightroom; TonePilot groups them into lighting scenes, proposes small corrections that make each scene consistent, and writes only the edits you approve. Lightroom stays your editor.
 
 > [!IMPORTANT]
-> **Developer preview · v0.5.0 · not for client work yet.** The safety and recovery engine passes 59 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. On real Lightroom, TonePilot has only **read** and analyzed five HEIC photos. **No real Develop write, no RAW file and no photographic-quality benchmark has been run.** Time savings are unmeasured. See [what has actually been measured](docs/EVIDENCE.md).
+> **Developer preview · v0.5.0 · not for client work yet.** The safety and recovery engine passes 67 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. On real Lightroom, TonePilot has analyzed five HEIC photos and written three, each verified by read-back. **White balance on JPEG/HEIC needs a bridge update; no RAW file and no photographic-quality benchmark has been run.** Time savings are unmeasured. See [what has actually been measured](docs/EVIDENCE.md).
 
 <table>
 <tr>

@@ -97,6 +97,11 @@ export async function runDoctor({live = false} = {}) {
       const sel = await readSelection(client, 1);
       ok = true;
       detail = 'Bridge ' + (client.serverInfo?.version || '?') + ' answered; ' + sel.count + ' photo' + (sel.count === 1 ? '' : 's') + ' selected';
+      const relative = !!client.writableKeys?.has('IncrementalTemperature') && !!client.writableKeys?.has('IncrementalTint');
+      checks.push(check('relative-wb', relative, 'White balance on JPEG, HEIC and TIFF',
+        relative ? 'The bridge can read and write Lightroom\'s relative white balance' : 'The installed bridge can only change white balance on RAW files',
+        relative ? null : 'iPhone and other JPEG/HEIC photos need a bridge that supports Lightroom\'s IncrementalTemperature/IncrementalTint. RAW files are not affected.',
+        'recommended'));
     } catch (e) { detail = e.message; }
     finally { await client.close(); }
     checks.push(check('live-bridge', ok, 'Live Lightroom connection', detail,

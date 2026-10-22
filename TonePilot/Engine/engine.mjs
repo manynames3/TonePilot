@@ -154,7 +154,7 @@ async function runAnalysis(client, journal, dir) {
         journal.append('photo-unsupported', {photo: id, reason: 'Catalog identity could not be confirmed (file renamed, moved or offline).'});
         continue;
       }
-      const caps = capabilitiesOf(cur.meta, cur.values);
+      const caps = capabilitiesOf(cur.meta, cur.values, client.writableKeys);
       if (!caps.supported) { journal.append('photo-unsupported', {photo: id, reason: caps.reason, identity: cur.identity}); continue; }
       const {origin, prior} = originFor(lineage, cur.identity, cur.values);
       journal.append('photo-baseline', {photo: id, identity: cur.identity, baseline: cur.values, snapshot: cur.snapshot,
@@ -266,7 +266,9 @@ async function postCheck(client, journal, p, id) {
     const before = p.metrics, ev = (p.changes?.Exposure2012 ?? p.baseline.Exposure2012) - p.baseline.Exposure2012;
     if (before?.clip && metrics?.clip && metrics.clip.channel - before.clip.channel > 0.01)
       issues.push('Highlight clipping rose by ' + ((metrics.clip.channel - before.clip.channel) * 100).toFixed(1) + '% of the frame; check bright areas.');
-    if (ev && before?.subject?.method === 'face' && metrics?.subject?.method === 'face') {
+    // Only exposure is predictable from the preview; tone sliders also move faces in shadow.
+    const toneChanged = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'].some(k => k in (p.changes || {}));
+    if (ev && !toneChanged && before?.subject?.method === 'face' && metrics?.subject?.method === 'face') {
       const achieved = Math.log2(metrics.subject.luma / before.subject.luma);
       if (Math.abs(achieved - ev) > 0.3) issues.push('Face brightness moved ' + achieved.toFixed(2) + ' EV (expected ' + ev.toFixed(2) + ' EV); review this frame.');
     }

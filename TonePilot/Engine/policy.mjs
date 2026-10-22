@@ -10,23 +10,25 @@
 export const STRENGTHS = Object.freeze({
   Subtle: Object.freeze({
     fraction: 0.6, minConfidence: 0.88,
-    caps: Object.freeze({Exposure2012: 0.35, TemperatureMired: 12, Tint: 6,
+    caps: Object.freeze({Exposure2012: 0.35, TemperatureMired: 12, IncrementalTemperature: 6, Tint: 6,
       Highlights2012: 12, Shadows2012: 12, Whites2012: 10, Blacks2012: 10})
   }),
   Balanced: Object.freeze({
     fraction: 0.8, minConfidence: 0.82,
-    caps: Object.freeze({Exposure2012: 0.6, TemperatureMired: 20, Tint: 10,
+    caps: Object.freeze({Exposure2012: 0.6, TemperatureMired: 20, IncrementalTemperature: 10, Tint: 10,
       Highlights2012: 20, Shadows2012: 20, Whites2012: 15, Blacks2012: 15})
   }),
   Stronger: Object.freeze({
     fraction: 1.0, minConfidence: 0.78,
-    caps: Object.freeze({Exposure2012: 1.0, TemperatureMired: 30, Tint: 15,
+    caps: Object.freeze({Exposure2012: 1.0, TemperatureMired: 30, IncrementalTemperature: 15, Tint: 15,
       Highlights2012: 30, Shadows2012: 30, Whites2012: 25, Blacks2012: 25})
   })
 });
 
 // Absolute ceiling, independent of any preference or model output.
-export const HARD_CAPS = Object.freeze({Exposure2012: 1.0, TemperatureMired: 35, Tint: 15,
+// Relative (JPEG/HEIC) temperature uses Lightroom's ±100 scale; its caps are provisional
+// until calibrated against Kelvin-equivalent shifts on real files.
+export const HARD_CAPS = Object.freeze({Exposure2012: 1.0, TemperatureMired: 35, IncrementalTemperature: 15, Tint: 15,
   Highlights2012: 30, Shadows2012: 30, Whites2012: 25, Blacks2012: 25});
 
 // Looks only use controls TonePilot can actually write: exposure, the four tone

@@ -26,7 +26,7 @@ export class LightroomMCP {
     Object.assign(this, defaultLaunch());
     this.timeout = timeout; this.writeTimeout = writeTimeout;
     this.sequence = 0; this.pending = new Map(); this.buffer = ''; this.proc = null;
-    this.closed = false; this.stderrTail = ''; this.serverInfo = null;
+    this.closed = false; this.stderrTail = ''; this.serverInfo = null; this.writableKeys = null;
   }
 
   async connect() {
@@ -43,7 +43,19 @@ export class LightroomMCP {
       clientInfo: {name: 'TonePilot Engine', version: process.env.TONEPILOT_VERSION || 'dev'}});
     this.serverInfo = init?.serverInfo || null;
     this.send({jsonrpc: '2.0', method: 'notifications/initialized'});
+    this.writableKeys = await this.readWritableKeys();
     return this;
+  }
+
+  // The Develop keys the bridge's write tool accepts, from its published schema. Null if
+  // unknown; callers then treat optional keys (relative white balance) as unwritable.
+  async readWritableKeys() {
+    try {
+      const list = await this.request('tools/list', {});
+      const tool = (list?.tools || []).find(t => t.name === 'set_develop_settings');
+      const keys = Object.keys(tool?.inputSchema?.properties?.settings?.properties || {});
+      return keys.length ? new Set(keys) : null;
+    } catch { return null; }
   }
 
   onData(chunk) {
