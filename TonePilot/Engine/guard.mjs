@@ -133,8 +133,14 @@ function flatten(snapshot, withFull) {
 export function diffSnapshot(before, after) {
   const changed = [];
   const withFull = !!before?.full && !!after?.full;
+  // Only TonePilot's plug-in reports `full`. Readings from different bridges are compared
+  // on the fields both report: a field one bridge lacks (e.g. relative white balance on
+  // the stock MCP bridge) is not a change.
+  const mixed = !!before?.full !== !!after?.full;
   before = flatten(before, withFull); after = flatten(after, withFull);
-  for (const key of new Set([...Object.keys(before || {}), ...Object.keys(after || {})])) {
+  const keys = mixed ? Object.keys(before || {}).filter(k => k in (after || {}))
+    : new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const key of keys) {
     const a = before?.[key], b = after?.[key];
     if (typeof a === 'number' && typeof b === 'number') { if (Math.abs(a - b) > 1e-4) changed.push(key); continue; }
     if (JSON.stringify(stable(a)) !== JSON.stringify(stable(b))) changed.push(key);

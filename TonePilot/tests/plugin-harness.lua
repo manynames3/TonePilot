@@ -145,6 +145,6 @@ assert(replies[2].result.pluginVersion == Actions.version and replies[2].result.
 assert(replies[3].error:find("Unknown action"))
 assert(replies[4].error == "Unauthorized")
 local chmods = table.concat(executed, "\n")
-assert(chmods:find("chmod 700") and chmods:find("chmod 600 '.-bridge.json'"))
+assert(chmods:find("chmod 700") and chmods:find("chmod 600 '.-bridge%.json%.tmp'"), "restricted before it is renamed into place")
 assert(type(cleanup) == "function")
 print("plugin harness: ok")

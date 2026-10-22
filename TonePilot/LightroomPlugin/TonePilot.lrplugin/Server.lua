@@ -48,16 +48,19 @@ local function readToken()
     return nil
 end
 
--- The token lets a local process drive Lightroom: folder 0700, file 0600.
+-- The token lets a local process drive Lightroom: folder 0700, file 0600. Written to a
+-- temporary file and renamed, so a reader never sees a half-written file.
 local function writeBridgeFile(token)
     local folder, path = bridgeFile()
     LrFileUtils.createAllDirectories(folder)
     LrTasks.execute("/bin/chmod 700 " .. quote(folder))
-    local fh = assert(io.open(path, "w"))
+    local temp = path .. ".tmp"
+    local fh = assert(io.open(temp, "w"))
     fh:write(JSON.encode({ version = 1, plugin = Actions.version, requestPort = REQUEST_PORT,
         responsePort = RESPONSE_PORT, token = token }))
     fh:close()
-    if LrTasks.execute("/bin/chmod 600 " .. quote(path)) ~= 0 then error("Could not restrict " .. path, 0) end
+    if LrTasks.execute("/bin/chmod 600 " .. quote(temp)) ~= 0 then error("Could not restrict " .. temp, 0) end
+    assert(os.rename(temp, path))
 end
 
 local function newToken()
@@ -85,11 +88,13 @@ function Server.run(context)
 
     local function send(response)
         local waited = 0
-        while not me.sendConnected and waited < SEND_WAIT_SECONDS do
+        -- A rebind pending means this connection is about to be replaced: answering on it
+        -- would lose the reply, so wait for the engine's next response connection.
+        while (not me.sendConnected or me.responseNeedsRebind) and waited < SEND_WAIT_SECONDS do
             LrTasks.sleep(0.1)
             waited = waited + 0.1
         end
-        if not me.sendConnected or not me.responseSocket then
+        if not me.sendConnected or me.responseNeedsRebind or not me.responseSocket then
             Server.log("Response " .. tostring(response.id) .. " dropped: engine not connected")
             return
         end
@@ -186,7 +191,7 @@ function Server.run(context)
         if ticks % 5 == 0 then
             -- Reload Plug-in can leave an older instance running; the newest owns bridge.json.
             local token = readToken()
-            if token == nil then pcall(writeBridgeFile, me.token)
+            if token == nil then LrTasks.pcall(writeBridgeFile, me.token)   -- LrTasks.execute yields
             elseif token ~= me.token then
                 Server.log("Superseded by a newer instance")
                 break

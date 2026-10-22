@@ -228,6 +228,7 @@ async function runAnalysis(client, journal, dir) {
         try { jpegs.push(await fetchPreview(p.id)); ready.push(p); }
         catch (e) { record(p, {error: String(e.message).slice(0, 200)}); }
       }
+      if (stopRequested) return;   // Stop may have arrived while previews were fetched
       if (ready.length > 1) {
         try {
           const prompt = buildBatchPrompt({photos: ready, scene: sceneOf(ready[0]), policy: s.policy, enabled: s.config.enabled});
@@ -318,13 +319,16 @@ async function postCheck(client, journal, p, id) {
 }
 
 // Best effort: a named Lightroom snapshot before TonePilot first writes a photo in this
-// session. It never blocks the write; whether it was made is journaled with the photo.
+// session. It changes no Develop value and never blocks the write, but it is a catalog
+// write, so it is journaled first like every other; the result is journaled with the photo.
+// Repeating it after a crash only refreshes the same-named snapshot.
 async function snapshotBefore(client, journal, s, id) {
   const name = 'TonePilot before ' + s.id.slice(-6);
+  journal.append('snapshot-intent', {photo: id, name});
   let r;
   try { r = await client.tool('create_snapshot', {photo_id: id, name}); }
   catch (e) {
-    if (e.kind === 'closed') throw e;   // nothing was written; stop before the write
+    if (e.kind === 'closed') throw e;   // stop before the Develop write
     r = {created: false, error: e.message};
   }
   journal.append('photo-snapshot', {photo: id, name, supported: r.supported !== false, created: !!r.created, error: r.error || null});

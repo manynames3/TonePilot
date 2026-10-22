@@ -11,7 +11,7 @@ import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {setup, rawPhoto} from './helpers.mjs';
 import {PLUGIN_WRITABLE} from './mock-core.mjs';
-import {ALLOW} from '../Engine/guard.mjs';
+import {ALLOW, diffSnapshot, classifyWrite} from '../Engine/guard.mjs';
 import {TonePilotBridge} from '../Engine/tonepilot-bridge.mjs';
 
 const folder = dirname(fileURLToPath(import.meta.url));
@@ -89,6 +89,21 @@ test('the client reconnects when the plug-in drops its first response connection
   } finally { await client.close(); x.cleanup(); }
 });
 
+test('a late reply meant for an engine that died is never taken as the next engine\'s answer', async () => {
+  const x = setup({bridge: 'tonepilot', faults: {writeDelayMs: 400}, photos: {101: rawPhoto('A.CR3'), 102: rawPhoto('B.CR3')}});
+  const a = new TonePilotBridge({file: x.env.TONEPILOT_BRIDGE_FILE}), b = new TonePilotBridge({file: x.env.TONEPILOT_BRIDGE_FILE});
+  try {
+    await a.connect();
+    a.tool('set_develop_settings', {photo_id: '101', settings: {Exposure2012: 0.3}}).catch(() => {});
+    await new Promise(r => setTimeout(r, 20));
+    a.requests.destroy(); a.responses.destroy(); a.closed = true;   // engine A killed mid-write
+    await b.connect();
+    const r = await b.tool('set_develop_settings', {photo_id: '102', settings: {Exposure2012: 0.2}});
+    assert.equal(String(r.photo_id), '102', 'B got its own answer, not A\'s late one');
+    assert.equal(x.get().photos[102].settings.exposure, 0.2);
+  } finally { await b.close(); x.cleanup(); }
+});
+
 test('without a bridge file, or with a stale one, the engine uses the MCP bridge', () => {
   const x = setup();
   try {
@@ -118,7 +133,9 @@ test('a Lightroom snapshot is made once per photo, before its first write, and n
     assert.equal(records.length, 3);
     assert.ok(records.every(r => r.supported && r.created && r.name === name));
     for (const id of ['101', '102', '103']) {
+      const intent = journal.findIndex(r => r.type === 'snapshot-intent' && r.photo === id);
       const snap = journal.findIndex(r => r.type === 'photo-snapshot' && r.photo === id);
+      assert.ok(intent >= 0 && intent < snap, 'the snapshot, a catalog write, is journaled before it is made');
       assert.ok(snap < journal.findIndex(r => r.type === 'write-intent' && r.photo === id), 'before the photo\'s first write');
     }
     const v = x.show(dir);
@@ -191,4 +208,19 @@ test('a session analyzed through the MCP bridge can be applied and restored thro
     assert.equal(x.run(['--mode', 'restore', '--session', dir, '--confirm']).status, 0);
     assert.equal(x.show(dir).status, 'restored');
   } finally { x.cleanup(); }
+});
+
+test('snapshots from different bridges compare only what both report (JPEG/HEIC relative white balance)', () => {
+  // Through the plug-in a HEIC reports incremental white balance and `full`; the stock MCP bridge reports neither.
+  const plugin = {whiteBalance: 'As Shot', exposure: 0, shadows: 0, contrast: 0, incrementalTemperature: 0, incrementalTint: 0,
+    full: {WhiteBalance: 'As Shot', Exposure2012: 0, IncrementalTemperature: 0, IncrementalTint: 0, CropTop: 0}};
+  const mcp = {whiteBalance: 'As Shot', exposure: 0, shadows: 0, contrast: 0};
+  assert.deepEqual(diffSnapshot(plugin, mcp), [], 'no false "edited after analysis"');
+  assert.deepEqual(diffSnapshot(mcp, plugin), []);
+  assert.deepEqual(diffSnapshot(plugin, {...mcp, exposure: 0.5}), ['exposure'], 'a real change is still seen');
+  assert.deepEqual(diffSnapshot(mcp, {...mcp, incrementalTint: 3}), ['incrementalTint'], 'same bridge: a field appearing is a change');
+  const pre = {WhiteBalance: 'As Shot', Exposure2012: 0};
+  const c = classifyWrite({preValues: pre, preSnapshot: plugin, intended: {Exposure2012: 0.3},
+    afterValues: {WhiteBalance: 'As Shot', Exposure2012: 0}, afterSnapshot: mcp});
+  assert.equal(c.outcome, 'not-applied', 'a write that never landed is not counted as present');
 });

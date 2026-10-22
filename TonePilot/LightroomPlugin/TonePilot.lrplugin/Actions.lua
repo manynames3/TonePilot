@@ -201,7 +201,7 @@ function handlers.select_photos(params)
     local catalog = LrApplication.activeCatalog()
     local photos, wanted, missing = {}, {}, JSON.array({})
     for _, id in ipairs(ids) do
-        local ok, photo = pcall(photoById, catalog, id)
+        local ok, photo = LrTasks.pcall(photoById, catalog, id)   -- catalog calls may yield
         if ok and not wanted[photo] then
             photos[#photos + 1] = photo
             wanted[photo] = true

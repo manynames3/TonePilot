@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import {randomBytes} from 'node:crypto';
 import {BridgeError} from './lightroom.mjs';
 
 export const bridgeFile = () => process.env.TONEPILOT_BRIDGE_FILE ||
@@ -34,7 +35,10 @@ export class TonePilotBridge {
   constructor({file = bridgeFile(), timeout = 30000, writeTimeout = Number(process.env.TONEPILOT_WRITE_TIMEOUT_MS) || 40000,
     connectTimeout = 8000} = {}) {
     Object.assign(this, {file, timeout, writeTimeout, connectTimeout});
-    this.kind = 'tonepilot'; this.sequence = 0; this.pending = new Map(); this.buffer = '';
+    this.kind = 'tonepilot'; this.sequence = 0;
+    // Request ids are unique to this client: a reply the plug-in still owes an engine that
+    // died can never match a request of the next one.
+    this.nonce = randomBytes(8).toString('hex'); this.pending = new Map(); this.buffer = '';
     this.requests = null; this.responses = null; this.ready = false; this.closed = false;
     this.serverInfo = null; this.writableKeys = null;
   }
@@ -97,7 +101,7 @@ export class TonePilotBridge {
   }
 
   request(action, params = {}, timeout = this.timeout) {
-    const id = ++this.sequence;
+    const id = this.nonce + ':' + ++this.sequence;
     return new Promise((resolve, reject) => {
       if (this.closed || !this.requests || this.requests.destroyed) return reject(new BridgeError('Lightroom plug-in unavailable', 'closed'));
       const timer = setTimeout(() => {
@@ -112,6 +116,8 @@ export class TonePilotBridge {
   async tool(name, args = {}) {
     const timeout = name === 'get_photo_preview' ? 45000 : name === 'set_develop_settings' ? this.writeTimeout : this.timeout;
     const result = await this.request(name, args, timeout);
+    if (args.photo_id !== undefined && result?.photo_id !== undefined && String(result.photo_id) !== String(args.photo_id))
+      throw new BridgeError('Lightroom answered for another photo', 'timeout');   // outcome unknown: settle from read-back
     return result && typeof result === 'object' && !Array.isArray(result) ? result : {};
   }
 

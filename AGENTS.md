@@ -6,7 +6,7 @@ TonePilot is a **Lightroom Classic companion**. It is not a RAW editor, catalog 
 
 - No general-purpose model gets Lightroom tools. The model returns a schema-constrained assessment; `TonePilot/Engine/engine.mjs` is the only writer, through `guard.mjs`.
 - `analyze` is read-only. `apply` and `restore` need `--confirm` and act only on IDs in the session journal.
-- Journal first: `write-intent` / `restore-intent` must be fsync'd before the Lightroom call; results come only from read-back values.
+- Journal first: `write-intent` / `restore-intent` (and `snapshot-intent` before the one non-Develop catalog write, a named Lightroom snapshot through TonePilot's plug-in) must be fsync'd before the Lightroom call; results come only from read-back values.
 - Session status is derived from photo states (`session.mjs`). Never store or emit a status the photo states don't support.
 - Never overwrite a photographer's edit: stale photos are skipped; restore only touches TonePilot's own keys while they still hold TonePilot's values.
 - Writable keys: Temperature, Tint (RAW), IncrementalTemperature, IncrementalTint (JPEG/HEIC/TIFF, only when the bridge accepts them), Exposure2012, Highlights2012, Shadows2012, Whites2012, Blacks2012. WhiteBalance only to restore an original mode. Nothing else.
