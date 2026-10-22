@@ -4,7 +4,7 @@ TonePilot moves forward only when a gate passes with real evidence. Status as of
 
 | Gate | What it proves | Status |
 |---|---|---|
-| G0 | Safety logic under failure, simulated | **Passed** — 55 automated tests, mutation-checked |
+| G0 | Safety logic under failure, simulated | **Passed** — 59 automated tests, mutation-checked |
 | G1 | Real writes, verification and restore on a disposable catalog | **Not run** — needs the photographer's go-ahead and a sandbox catalog |
 | G2 | Real read-only analysis on representative RAW galleries | **Partial** — 5 HEIC photos, one scene; no RAW yet |
 | G3 | Photographic quality, blind | **Not run** — needs ≥ 100 held-out photos and independent raters |
@@ -46,7 +46,7 @@ Calibration: the same file yields a reliability table and the lowest model-confi
 
 ## G4 — scale
 
-Raise `MAX_JOB_PHOTOS` (guard.mjs) 20 → 100 only after: G1 passed; the per-write selection re-check is made O(1) (e.g. verify count and a checksum of IDs once per batch); AI concurrency and cost measured on a real 100-photo run; Lightroom stays responsive (measure UI latency) and TonePilot's memory stays < 500 MB. Repeat for 100 → 500 with a resumable, batch-checkpointed analysis.
+Raise `MAX_JOB_PHOTOS` (guard.mjs) 20 → 100 only after: G1 passed; ~~the per-write selection re-check is made cheap~~ (done: `SelectionGuard` reads the full selection at the start, every 25 photos and before the last, and one sampled row otherwise — 10,980 rows instead of 250,500 at 500 photos); AI concurrency and cost measured on a real 100-photo run; Lightroom stays responsive (measure UI latency) and TonePilot's memory stays < 500 MB. Repeat for 100 → 500 with a resumable, batch-checkpointed analysis.
 
 ## G5 — distribution
 

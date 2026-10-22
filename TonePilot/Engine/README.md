@@ -37,7 +37,7 @@ Mac app ──args──▶ engine.mjs ──MCP/stdio──▶ Lightroom bridge
 | `scenes.mjs` | Lighting-scene segmentation and reference frames |
 | `harmonize.mjs` | Scene-consistent, policy-bounded decisions |
 | `ai.mjs` | Prompt, strict output schema, Codex subprocess, bounded pool |
-| `lightroom.mjs` | MCP client; pinned/bundled bridge; typed errors |
+| `lightroom.mjs` | MCP client; pinned/bundled bridge; typed errors; apply-time selection interlock (`SelectionGuard`) |
 | `doctor.mjs` | Diagnostics |
 | `Analyzer.swift` | On-device measurements of Lightroom-rendered previews |
 
@@ -50,6 +50,7 @@ Mac app ──args──▶ engine.mjs ──MCP/stdio──▶ Lightroom bridge
 5. **Never claim more than read-back proves.** `verified` = intended values present and nothing else visible changed; otherwise `mismatch` for review.
 6. **No compounding.** Caps apply from the photo's origin across all sessions.
 7. **Status is derived, never stored.** "Restored" means every photo with a TonePilot change is restored.
+8. **Selection interlock without O(n²) reads.** Apply reads the full selection at the start, every 25 photos and before the last; other photos cost one sampled row. A changed selection stops the run within 25 photos, usually sooner. Per-photo identity and staleness checks — not the interlock — are what keep writes on the right photos.
 
 Limits of the bridge: it exposes ~25 Develop fields. Masks, crop, profile, lens and calibration cannot be checked through it; TonePilot never sends them.
 
@@ -68,4 +69,4 @@ Photo states: `pending → baselined → proposed | skipped | flagged | unsuppor
 
 ## Environment
 
-`TONEPILOT_RUNS_DIR`, `TONEPILOT_CODEX`, `TONEPILOT_ANALYZER`, `TONEPILOT_MCP_SERVER` (bundled bridge), `TONEPILOT_PARENT_PID`, `TONEPILOT_SETTLE_MS`, `TONEPILOT_AI_CONCURRENCY` (1–4, default 2), `TONEPILOT_WRITE_TIMEOUT_MS`. Tests also use `TONEPILOT_NPX` / `TONEPILOT_MCP_ARGS` to substitute the mock bridge.
+`TONEPILOT_RUNS_DIR`, `TONEPILOT_CODEX`, `TONEPILOT_ANALYZER`, `TONEPILOT_MCP_SERVER` (bundled bridge), `TONEPILOT_PARENT_PID`, `TONEPILOT_SETTLE_MS`, `TONEPILOT_AI_CONCURRENCY` (1–4, default 2), `TONEPILOT_WRITE_TIMEOUT_MS`, `TONEPILOT_SELECTION_FULL_EVERY` (default 25). Tests also use `TONEPILOT_NPX` / `TONEPILOT_MCP_ARGS` to substitute the mock bridge.

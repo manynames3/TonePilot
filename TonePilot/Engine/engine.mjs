@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
-import {LightroomMCP, readSelection, requireSameSelection, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
+import {LightroomMCP, readSelection, requireSameSelection, SelectionGuard, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
 import {Journal} from './journal.mjs';
 import {loadSession, deriveStatus, listSessionDirs, sessionView, sessionSummary, writeViews} from './session.mjs';
 import {acquireLock, readLock, updateLock} from './lock.mjs';
@@ -290,7 +290,8 @@ async function doApply(client) {
     if (only && only.some(id => !candidates.includes(id))) throw new Error('An approved photo has no applicable edit');
     const approved = only ? candidates.filter(id => only.includes(id)) : candidates;
     if (!approved.length) throw new Error('No photos approved');
-    await requireSameSelection(client, s.config.ids);
+    const selection = new SelectionGuard(client, s.config.ids);
+    await selection.full();
     journal.append('apply-started', {approved});
     let stoppedReason = null, failures = 0;
     try {
@@ -298,7 +299,7 @@ async function doApply(client) {
         if (stopRequested) { stoppedReason = 'Stopped by request'; break; }
         const p = s.photos[id];
         emit('progress', {step: 'apply', phase: 'Writing approved edits', index: i + 1, total: approved.length, filename: p.filename});
-        try { await requireSameSelection(client, s.config.ids); }
+        try { await selection.beforeWrite({last: i === approved.length - 1}); }
         catch (e) { if (e.kind === 'selection') { stoppedReason = e.message; break; } throw e; }
         const cur = await getDevelop(client, id);
         if (!sameIdentity(p.identity, cur.identity)) {
@@ -331,7 +332,7 @@ async function doApply(client) {
       stoppedReason = e.message;
       journal.append('session-error', {phase: 'apply', message: e.message});
     } finally {
-      journal.append('apply-finished', {stopped: !!stoppedReason, error: stoppedReason});
+      journal.append('apply-finished', {stopped: !!stoppedReason, error: stoppedReason, selectionReads: selection.reads});
     }
     const view = writeViews(reload(dir));
     emit('complete', {state: view.status, dir, stopped: stoppedReason, ...brief(view)});

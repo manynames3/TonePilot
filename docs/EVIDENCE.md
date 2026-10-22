@@ -30,13 +30,14 @@ What this shows: the read path, capability detection, measurement and planning w
 
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-55 tests, all passing, ~15 s. No photos and no catalog are touched.
+59 tests, all passing, ~16 s. No photos and no catalog are touched.
 
 | Suite | Covers |
 |---|---|
 | `engine.test.mjs` (12) | Guard limits incl. cumulative and mired caps; read-back classification; WB-mode restore; format capabilities; analyze-never-writes; confirmation; stale selection; unrelated manual edits; metadata edits; subset approval; unsupported files; no compounding across sessions; relaunch recovery |
 | `recovery.test.mjs` (16) | Engine SIGKILLed after a write lands / before it lands; settle window; interrupted restore; manual edits after apply; bridge exits mid-apply; timeouts that land late / never; plug-in errors; rounding and side-effect mismatches; selection change mid-apply; app quit mid-apply; concurrent engines; torn and damaged journals; stopped-and-resumed analysis; AI outage fails resumably and retries |
 | `analysis.test.mjs` (13) | Capture-time parsing across locales; scene splits; reframing vs real light change; tiny faces and small previews; scene exposure matching; outlier frames; strength scaling and thresholds; highlight protection; WB drift sync; mixed light; looks incl. preserved low-key/silhouette and creative colour; skin-hue warnings; schema normalization |
+| `selection.test.mjs` (4) | Apply-time selection interlock: full reads O(n/N) (exact read counts asserted), a same-size swap stops the run within N photos and never writes outside the authorization, the rotating sample catches swaps early, reselecting resumes without double writes |
 | `bridge.test.mjs` (7) | Read-only selection, empty selection, over-limit selection, disconnected plug-in, unverified bridge version, pinned bridge, doctor completeness |
 | `benchmark.test.mjs` (7) | Wilson intervals, blind-scoring requirement, small samples never "validated", interval-based gates, per-skin-group and lighting breakdowns, calibration threshold, repeatability |
 
@@ -54,7 +55,17 @@ What this shows: the read path, capability detection, measurement and planning w
 
 End to end through the engine CLI and mock bridge at 20 photos (instant AI): 56 ms/photo to analyze, 48 ms per verified write including the after-edit check, 19 ms per restore.
 
-Conclusion: the engine itself is not the bottleneck at 500 photos. AI latency and token cost are, and the per-write selection re-check reads the whole selection each time (O(n²) at 500) — that must change before gate G4.
+Conclusion: the engine itself is not the bottleneck at 500 photos; AI latency and token cost are.
+
+**Selection interlock.** v0.5.0 re-read the whole Lightroom selection before every write: n metadata rows per photo, O(n²) per apply. It now reads the full selection at the start, every 25 photos and before the last photo, and one sampled row otherwise (count plus one photo at a rotating position, escalating to a full read on any mismatch). Rows Lightroom must read during one apply, counted exactly:
+
+| Photos | Before | Now |
+|---:|---:|---:|
+| 20 | 420 | 59 |
+| 100 | 10,100 | 596 |
+| 500 | 250,500 | 10,980 |
+
+The trade-off: a selection change is now noticed within 25 photos (usually sooner, when the sample lands on a changed photo) instead of at the next photo. Writes in that window still go only to authorized photos and still pass the per-photo identity and staleness checks; the interlock signals the photographer's intent, it is not what prevents a wrong write.
 
 ## Not yet measured
 

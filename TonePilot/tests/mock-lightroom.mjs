@@ -43,6 +43,9 @@ function handle(msg) {
   const faults = data.faults || {};
   if (name === 'get_selected_photos') {
     const ids = data.selected.slice(args.offset || 0, (args.offset || 0) + (args.limit ?? 100));
+    // Lets tests measure how many metadata rows the engine makes Lightroom read.
+    (data.selectionCalls ||= []).push({limit: args.limit ?? 100, offset: args.offset || 0, rows: ids.length});
+    save(data);
     return text(id, {count: data.selected.length, photos: ids.map(pid => ({id: Number(pid), filename: data.photos[pid].filename,
       path: data.photos[pid].path, dateTimeOriginal: data.photos[pid].dateTimeOriginal}))});
   }
@@ -80,6 +83,10 @@ function handle(msg) {
     }
     apply();
     if (faults.changeSelectionAfterWrite === n) data.selected = [];
+    if (faults.swapSelectionAfterWrite?.n === n) {   // same count, one photo replaced by an unauthorized one
+      const {from, to} = faults.swapSelectionAfterWrite;
+      data.selected = data.selected.map(x => (x === from ? to : x));
+    }
     save(data);
     if (faults.killAfterWrite === n) { process.kill(process.ppid, 'SIGKILL'); return process.exit(0); }
     if (faults.exitAfterWrite === n) return process.exit(3);

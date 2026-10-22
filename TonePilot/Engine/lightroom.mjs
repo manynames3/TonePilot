@@ -133,3 +133,38 @@ export async function requireSameSelection(client, authorized) {
     throw new BridgeError('Lightroom selection changed. No further writes until the original photos are selected again.', 'selection');
   return photos;
 }
+
+// Apply-time selection interlock. Reading the whole selection before every write costs
+// n metadata rows per photo, O(n²) per apply (≈250,000 rows at 500 photos). Instead:
+// a full check when apply starts, before the last photo and after every `fullEvery`
+// photos; in between, one row per photo — the selection count plus one photo sampled at
+// a rotating position, which must belong to the authorized set. Any cheap-check mismatch
+// escalates to a full check, so a real change stops the run within `fullEvery` photos at
+// most (usually sooner). The interlock is a signal of the photographer's intent; what
+// prevents writing the wrong photo is the per-photo identity check in engine.mjs.
+export class SelectionGuard {
+  constructor(client, authorized, {fullEvery = Number(process.env.TONEPILOT_SELECTION_FULL_EVERY) || 25} = {}) {
+    this.client = client;
+    this.authorized = authorized.map(String);
+    this.members = new Set(this.authorized);
+    this.fullEvery = Math.max(1, Math.floor(fullEvery));
+    this.sinceFull = 0; this.cursor = 0;
+    this.reads = {full: 0, sampled: 0};
+  }
+
+  async full() {
+    this.reads.full++;
+    this.sinceFull = 0;
+    return requireSameSelection(this.client, this.authorized);
+  }
+
+  async beforeWrite({last = false} = {}) {
+    if (last || this.sinceFull >= this.fullEvery) return this.full();
+    this.reads.sampled++;
+    const offset = this.cursor++ % this.members.size;
+    const raw = await this.client.tool('get_selected_photos', {limit: 1, offset});
+    const sampled = raw?.photos?.[0]?.id;
+    if (raw?.count !== this.members.size || sampled === undefined || !this.members.has(String(sampled))) return this.full();
+    this.sinceFull++;
+  }
+}
