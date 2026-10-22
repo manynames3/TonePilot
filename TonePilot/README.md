@@ -24,7 +24,7 @@ The app uses `@StateObject` instead of `@State` deliberately: on the macOS 27 SD
 node --test TonePilot/tests/*.test.mjs
 ```
 
-Never touches a real catalog. For UI review without real photos: `node TonePilot/tests/demo-sessions.mjs /tmp/demo-runs`, then launch the app with `TONEPILOT_RUNS_DIR=/tmp/demo-runs`. Add `TONEPILOT_SNAPSHOT_DIR=/tmp/shots` to have the app render each screen to PNG and quit.
+Never touches a real catalog. CI (`.github/workflows/ci.yml`) runs this suite and a temp-folder build (no bridge download, no install) on every pull request and push to `main`. For UI review without real photos: `node TonePilot/tests/demo-sessions.mjs /tmp/demo-runs`, then launch the app with `TONEPILOT_RUNS_DIR=/tmp/demo-runs`. Add `TONEPILOT_SNAPSHOT_DIR=/tmp/shots` to have the app render each screen to PNG and quit.
 
 ## Data
 

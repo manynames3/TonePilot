@@ -2,7 +2,7 @@
 // Lightroom bridge, conflicting manual edits, and journal damage.
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {appendFileSync, writeFileSync, readFileSync} from 'node:fs';
+import {appendFileSync, writeFileSync, readFileSync, existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {spawn} from 'node:child_process';
 import {setup, rawPhoto, ENGINE} from './helpers.mjs';
@@ -10,6 +10,14 @@ import {setup, rawPhoto, ENGINE} from './helpers.mjs';
 const THREE = () => ({101: rawPhoto('A_0101.CR3'), 102: rawPhoto('A_0102.CR3'), 103: rawPhoto('A_0103.CR3')});
 const UNDER = {skip: false, confidence: 0.95, scene: 'shade', illuminant: 'open-shade', mixedLighting: false, backlit: false,
   intent: 'none', skinCast: 'none', subjectExposure: 'under', changes: [{setting: 'Exposure2012', value: 0.4}], reason: 'under'};
+// Waits for an observable condition instead of a fixed sleep, so slow CI machines don't flake.
+async function waitFor(check, what, timeoutMs = 20000) {
+  const until = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > until) throw new Error('Timed out waiting for ' + what);
+    await new Promise(r => setTimeout(r, 25));
+  }
+}
 const planned = (x, ids) => { x.set(s => { s.aiDefault = UNDER; }); return x.analyze(ids); };
 const apply = (x, dir, extra = []) => x.run(['--mode', 'apply', '--session', dir, '--confirm', ...extra]);
 const restore = (x, dir) => x.run(['--mode', 'restore', '--session', dir, '--confirm']);
@@ -215,12 +223,17 @@ test('closing the app stops the engine after the current photo, leaving a consis
   try {
     const dir = planned(x, ['101', '102', '103']);
     x.set(s => { s.faults = {writeDelayMs: 500}; });
-    // A stand-in "app" that launches the engine and then quits.
+    // A stand-in "app" that launches the engine and quits as soon as the first write lands.
     const app = spawn(process.execPath, ['-e', `
       const {spawn} = require('node:child_process');
-      const c = spawn(process.execPath, ${JSON.stringify([ENGINE, '--mode', 'apply', '--session', dir, '--confirm'])},
+      const fs = require('node:fs');
+      spawn(process.execPath, ${JSON.stringify([ENGINE, '--mode', 'apply', '--session', dir, '--confirm'])},
         {env: {...process.env, TONEPILOT_PARENT_PID: String(process.pid)}, stdio: 'ignore'});
-      setTimeout(() => process.exit(0), 700);`], {env: x.env, stdio: 'ignore'});
+      const started = Date.now();
+      const t = setInterval(() => {
+        const writes = JSON.parse(fs.readFileSync(process.env.TONEPILOT_MOCK_STATE, 'utf8')).writes.length;
+        if (writes >= 1 || Date.now() - started > 20000) { clearInterval(t); process.exit(0); }
+      }, 25);`], {env: x.env, stdio: 'ignore'});
     await new Promise(r => app.on('exit', r));
     for (let i = 0; i < 60; i++) {
       const s = x.run(['--mode', 'sessions']).complete;
@@ -240,7 +253,7 @@ test('a second engine cannot run while one is still writing', async () => {
     const dir = planned(x, ['101', '102', '103']);
     x.set(s => { s.faults = {writeDelayMs: 700}; });
     const first = x.start(['--mode', 'apply', '--session', dir, '--confirm']);
-    await new Promise(r => setTimeout(r, 400));
+    await waitFor(() => existsSync(join(x.runs, '.engine.lock')), 'the first engine to take the lock');
     const second = x.run(['--mode', 'restore', '--session', dir, '--confirm']);
     assert.notEqual(second.status, 0);
     assert.match(second.error.message, /still running/);
@@ -274,7 +287,7 @@ test('a stopped analysis can be resumed without repeating finished work', async 
     const p = x.start(['--mode', 'analyze', '--ids', '["101","102","103"]'], {TONEPILOT_AI_CONCURRENCY: '1'});
     let out = '';
     p.stdout.on('data', d => { out += d; });
-    await new Promise(r => setTimeout(r, 2200));
+    await waitFor(() => out.includes('"step":"assess"'), 'the first assessment');   // the second is now in flight
     p.kill('SIGTERM');
     await new Promise(r => p.on('exit', r));
     const dir = out.split('\n').filter(Boolean).map(l => JSON.parse(l)).find(e => e.type === 'session').dir;
