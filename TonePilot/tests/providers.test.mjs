@@ -77,3 +77,26 @@ test('an unknown provider is refused before any photo is assessed', () => {
     assert.match(r.error.message, /Unknown AI provider: mystery/);
   } finally { x.cleanup(); }
 });
+
+test('compare-providers runs each provider read-only and reports agreement, repeatability, tokens and cost', async () => {
+  const {spawnSync} = await import('node:child_process');
+  const {join} = await import('node:path');
+  const x = setup({provider: 'bedrock', photos: THREE()});
+  try {
+    const out = join(x.temp, 'compare');
+    const r = spawnSync(process.execPath, [new URL('../Benchmarks/compare-providers.mjs', import.meta.url).pathname, 'run',
+      '--ids', JSON.stringify(IDS), '--runs', '2', '--out', out, '--try', 'codex', '--try', 'bedrock:anthropic.claude-sonnet-5-5',
+      '--price', 'anthropic.claude-sonnet-5-5=2,10'], {env: x.env, encoding: 'utf8'});
+    assert.equal(r.status, 0, r.stderr);
+    const report = JSON.parse(r.stdout);
+    assert.equal(report.baseline, 'codex:codex');
+    const [codex, sonnet] = report.rows;
+    assert.deepEqual([codex.runs, codex.photosAssessed, codex.repeatability.decisions], [2, 6, 1]);
+    assert.equal(sonnet.provider, 'bedrock:anthropic.claude-sonnet-5-5');
+    assert.equal(sonnet.agreementWith.decisions, 1);
+    assert.equal(sonnet.inputTokensPerPhoto, 4000);   // the fake API's usage: 2500 per image + 1500
+    assert.equal(sonnet.usdPerPhoto, (4000 * 2 + 150 * 10) / 1e6);
+    assert.equal(codex.usdPerPhoto, null, 'no price given, none assumed');
+    assert.equal(x.get().writes.length, 0, 'read-only');
+  } finally { x.cleanup(); }
+});
