@@ -72,3 +72,32 @@ test('repeatability compares decisions across identical runs', () => {
   const diff = repeatability([mk('proposed', 0.3), mk('skipped', 0)]);
   assert.equal(diff.decisionAgreement, 0);
 });
+
+test('vs-photographer: records the photographer\'s finished values read-only, then scores TonePilot\'s plan against them', async () => {
+  const {spawnSync} = await import('node:child_process');
+  const {join} = await import('node:path');
+  const {setup, rawPhoto} = await import('./helpers.mjs');
+  const script = new URL('../Benchmarks/vs-photographer.mjs', import.meta.url).pathname;
+  const x = setup({photos: {101: rawPhoto('A.CR3'), 102: rawPhoto('B.CR3')}});
+  try {
+    // Main catalog: the photographer brightened A by 0.5 EV and pushed its tint to 10; B was left alone.
+    x.set(s => { Object.assign(s.photos[101].settings, {exposure: 0.5, tint: 10}); });
+    const ref = join(x.temp, 'reference.json');
+    const c = spawnSync(process.execPath, [script, 'capture', '--out', ref], {env: x.env, encoding: 'utf8'});
+    assert.equal(c.status, 0, c.stderr);
+    assert.equal(x.get().writes.length, 0, 'capture is read-only');
+    // Test catalog: fresh, unedited copies of the same files; TonePilot proposes +0.24 EV.
+    x.set(s => { Object.assign(s.photos[101].settings, {exposure: 0, tint: 4}); });
+    const dir = x.analyze(['101', '102']);
+    const r = spawnSync(process.execPath, [script, 'compare', ref, dir], {env: x.env, encoding: 'utf8'});
+    assert.equal(r.status, 0, r.stderr);
+    const report = JSON.parse(r.stdout);
+    assert.equal(report.matchedPhotos, 2);
+    const ev = report.bySetting.find(s => s.setting === 'Exposure2012'), tint = report.bySetting.find(s => s.setting === 'Tint');
+    assert.deepEqual([ev.photographerChanged, ev.closer, ev.further, ev.wrongDirection], [1, 1, 0, 0]);
+    assert.equal(ev.medianDistanceUnedited, 0.5);
+    assert.equal(ev.medianDistanceTonePilot, 0.26, 'Balanced applies 80% of +0.3 EV: 0.24, so 0.26 EV short of the photographer');
+    assert.equal(ev.changedWhenPhotographerDidNot, 1, 'B was brightened although the photographer left it alone');
+    assert.deepEqual([tint.photographerChanged, tint.medianDistanceUnedited, tint.closer], [1, 6, 0]);
+  } finally { x.cleanup(); }
+});
