@@ -222,3 +222,14 @@ test('doctor checks TonePilot Cloud by its address and license, and calls no Cla
     assert.equal(x.claudeCalls().length, 0);
   } finally { x.cleanup(); }
 });
+
+test('classic Bedrock models (inference profiles such as us.anthropic.claude-sonnet-4-6) get the schema as a forced tool', () => {
+  const x = setup({provider: 'bedrock', photos: THREE()});
+  try {
+    const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)], {TONEPILOT_AI_MODEL: 'us.anthropic.claude-sonnet-4-6'});
+    assert.equal(r.status, 0, JSON.stringify(r.error));
+    const calls = x.claudeCalls();
+    assert.ok(calls.length === 3 && calls.every(c => c.classic && c.schemaOk && c.model === 'us.anthropic.claude-sonnet-4-6' && c.effort === undefined));
+    assert.ok(x.show(r.complete.dir).photos.every(p => p.state === 'proposed'));
+  } finally { x.cleanup(); }
+});

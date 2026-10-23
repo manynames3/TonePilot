@@ -18,11 +18,15 @@ const server = http.createServer((req, res) => {
   req.on('data', chunk => { body += chunk; });
   req.on('end', () => {
     const reply = (status, obj) => { res.writeHead(status, {'content-type': 'application/json'}); res.end(JSON.stringify(obj)); };
-    if (req.method !== 'POST' || !req.url.endsWith('/v1/messages')) return reply(404, {type: 'error', error: {type: 'not_found_error', message: req.url}});
+    // The Messages API, or classic Bedrock InvokeModel (model in the path, answer schema as a forced tool).
+    const classic = req.url.match(/\/model\/([^/]+)\/invoke$/);
+    if (req.method !== 'POST' || !(classic || req.url.endsWith('/v1/messages'))) return reply(404, {type: 'error', error: {type: 'not_found_error', message: req.url}});
     const request = JSON.parse(body);
+    if (classic) request.model = decodeURIComponent(classic[1]);
     const content = request.messages?.[0]?.content || [];
     const images = content.filter(b => b.type === 'image');
-    const schema = request.output_config?.format?.schema;
+    const tool = classic && request.tool_choice?.type === 'tool' ? request.tools?.find(t => t.name === request.tool_choice.name) : null;
+    const schema = classic ? tool?.input_schema : request.output_config?.format?.schema;
     // Doctor's live check: text only, no schema, a few tokens.
     if (!schema && !images.length) {
       fs.appendFileSync(STATE + '.claude', JSON.stringify({ping: true, model: request.model, maxTokens: request.max_tokens,
@@ -31,7 +35,7 @@ const server = http.createServer((req, res) => {
         content: [{type: 'text', text: 'OK'}], stop_reason: 'end_turn', stop_sequence: null, usage: {input_tokens: 12, output_tokens: 2}});
     }
     fs.appendFileSync(STATE + '.claude', JSON.stringify({model: request.model, effort: request.output_config?.effort,
-      images: images.length, apiKey: req.headers['x-api-key'] || null, schemaOk: !!schema && !hasUnsupported(schema)}) + '\n');
+      images: images.length, apiKey: req.headers['x-api-key'] || null, schemaOk: !!schema && !hasUnsupported(schema), classic: !!classic}) + '\n');
     fs.appendFileSync(STATE + '.calls', images.length + '\n');
     const batch = images.length > 1;
     if (!schema || hasUnsupported(schema) || batch !== !!schema.properties?.photos)
@@ -42,7 +46,8 @@ const server = http.createServer((req, res) => {
     if (ids.some(id => (state.aiFail || []).includes(id)))
       return reply(400, {type: 'error', error: {type: 'invalid_request_error', message: 'model unavailable'}});
     const message = {id: 'msg_mock', type: 'message', role: 'assistant', model: request.model,
-      content: [{type: 'text', text: JSON.stringify(answerFor(state, ids, batch))}],
+      content: [classic ? {type: 'tool_use', id: 'toolu_mock', name: tool.name, input: answerFor(state, ids, batch)}
+        : {type: 'text', text: JSON.stringify(answerFor(state, ids, batch))}],
       stop_reason: state.claudeRefusal ? 'refusal' : 'end_turn', stop_sequence: null,
       usage: {input_tokens: 2500 * images.length + 1500, output_tokens: 150 * images.length}};
     setTimeout(() => reply(200, message), state.aiDelayMs || 0);

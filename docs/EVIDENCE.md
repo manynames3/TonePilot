@@ -71,6 +71,21 @@ What this shows: batching removes most of Codex's fixed per-call prompt (~18,000
 
 Other findings: `-c model_reasoning_effort="low"` made no measurable difference (same tokens, 7.3–9.6 s vs 8.5–9.5 s per photo, same decisions; Codex's catalog lists `low` as the default model's default effort), so it is not used. For this CR3, Lightroom failed the 640, 1024 and 640 px preview requests ("error loading thumb") and the 320 px retry returned the full 5472 × 3648 image (3 MB). Preview fetching took ~20 s of each ~32 s run.
 
+## AI providers on real Bedrock (October 22, 2026, read-only)
+
+The owner's AWS account (us-east-1) answers on Bedrock's classic InvokeModel endpoint for Claude Haiku 4.5, Sonnet 4.5, Sonnet 4.6 and Opus 4.6; it is refused ("not available for this account") for Opus 4.7 and later, Sonnet 5 and the 5.5 family, which are also the only models on Bedrock's newer Messages endpoint. TonePilot therefore supports both: inference-profile IDs (`us.anthropic.claude-sonnet-4-6`) use the classic endpoint with the schema as a forced tool; `anthropic.claude-*` IDs use the Messages endpoint with structured outputs.
+
+`compare-providers.mjs` on **one** RAW photo, two runs per model (the selection held one photo — too few to choose a model; this proves the path end to end):
+
+| Model | Decision (both runs) | Repeatable settings | Input / output tokens per photo | Model time | USD per photo* |
+|---|---|---|---:|---:|---:|
+| Codex (ChatGPT plan) | Tint −4 | yes | 26,231 / 176 | 14.1 s | on the plan |
+| Claude Haiku 4.5 | flagged (confidence 0.78 < 0.82) | yes | 2,972 / 534 | 5.4 s | 0.006 |
+| Claude Sonnet 4.6 | Tint −4, +198–237 K, Blacks +8–15 | no | 2,973 / 657 | 8.2 s | 0.019 |
+| Claude Opus 4.6 | flagged (confidence 0.62) | yes | 2,973 / 518 | 11.8 s | 0.028 |
+
+All four judged the skin magenta (the measured white surfaces agree). *At Anthropic's list prices ($1/$5, $3/$15, $5/$25 per million tokens); Bedrock's own prices apply and regional `us.` profiles carry ~10% more. Direct Claude calls use ~9× fewer input tokens than Codex. No quality conclusion follows from one photo.
+
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
 144 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
