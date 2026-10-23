@@ -101,7 +101,7 @@ private struct AIServiceSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Model").font(Theme.secondaryStrong)
                 HStack(spacing: 8) {
-                    ForEach(AIModel.allCases) { m in ModelChip(model: m, selected: ai.model == m) { ai.model = m } }
+                    ForEach(AIModel.choices(ai.provider)) { m in ModelChip(model: m, selected: ai.model == m) { ai.model = m } }
                 }
             }
             if ai.provider == .bedrock {

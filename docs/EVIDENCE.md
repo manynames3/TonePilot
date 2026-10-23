@@ -88,7 +88,7 @@ All four judged the skin magenta (the measured white surfaces agree). *At Anthro
 
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-144 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
+145 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|

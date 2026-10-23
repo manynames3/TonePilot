@@ -52,11 +52,28 @@ enum AIProvider: String, CaseIterable, Identifiable {
     }
 }
 
+// The 5.5 models, and on Bedrock the earlier ones many AWS accounts can use (served through
+// global inference profiles on Bedrock's classic endpoint).
 enum AIModel: String, CaseIterable, Identifiable {
-    case opus, sonnet, haiku
+    case opus, sonnet, haiku, sonnet46, haiku45, opus46
     var id: String { rawValue }
-    var name: String { rawValue.capitalizedFirst + " 5.5" }
-    func modelID(_ provider: AIProvider) -> String { (provider == .bedrock ? "anthropic." : "") + "claude-\(rawValue)-5-5" }
+    static func choices(_ provider: AIProvider) -> [AIModel] { provider == .bedrock ? allCases : [.opus, .sonnet, .haiku] }
+    var name: String {
+        switch self {
+        case .opus, .sonnet, .haiku: return rawValue.capitalizedFirst + " 5.5"
+        case .sonnet46: return "Sonnet 4.6"
+        case .haiku45: return "Haiku 4.5"
+        case .opus46: return "Opus 4.6"
+        }
+    }
+    func modelID(_ provider: AIProvider) -> String {
+        switch self {
+        case .sonnet46: return "global.anthropic.claude-sonnet-4-6"
+        case .haiku45: return "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+        case .opus46: return "global.anthropic.claude-opus-4-6-v1"
+        default: return (provider == .bedrock ? "anthropic." : "") + "claude-\(rawValue)-5-5"
+        }
+    }
 }
 
 // Generic passwords under one service. Snapshot mode never touches the Keychain, so no
@@ -163,7 +180,8 @@ final class AIServiceSettings: ObservableObject {
         guard let provider = AIProvider(rawValue: d.string(forKey: "aiProvider") ?? "") else { return }
         env["TONEPILOT_AI_PROVIDER"] = provider.rawValue
         guard provider.isClaude else { return }
-        env["TONEPILOT_AI_MODEL"] = (AIModel(rawValue: d.string(forKey: "aiModel") ?? "") ?? .opus).modelID(provider)
+        let saved = AIModel(rawValue: d.string(forKey: "aiModel") ?? "") ?? .opus
+        env["TONEPILOT_AI_MODEL"] = (AIModel.choices(provider).contains(saved) ? saved : .opus).modelID(provider)
         let key = provider.keyAccount.flatMap { Keychain.read($0) }
         if provider == .bedrock {
             env["TONEPILOT_AWS_REGION"] = d.string(forKey: "awsRegion") ?? "us-east-1"
