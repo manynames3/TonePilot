@@ -73,7 +73,7 @@ Other findings: `-c model_reasoning_effort="low"` made no measurable difference 
 
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-123 tests, all passing, ~17 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
+135 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|
@@ -84,6 +84,8 @@ Other findings: `-c model_reasoning_effort="low"` made no measurable difference 
 | `whitebalance.test.mjs` (17) | Relative (JPEG/HEIC) white balance proposed, written, verified and restored to As Shot; honest skip when the bridge can't write or can't read it; scene blending; model prompt; exposure-and-WB-only scope; looks named in explanations; skin-tone verdicts in Kelvin and relative units; colour-science slider directions; measured casts corrected when the AI calls skin natural; measurement sets the amount when it agrees with the AI; deliberate warm light left alone |
 | `batch.test.mjs` (5) | Six photos of one scene in one model call, journaled per photo with shared-out token stats; a malformed batch answer falls back to one call per photo; batched and per-photo journals have the same records and decisions; a stopped batched analysis resumes without re-assessing finished photos; numbered batch prompt and strict schema |
 | `plugin.test.mjs` (14) | TonePilot's plug-in: Lua allowlist equals the engine's keys and only eight actions exist; the Lua run against stub SDK objects (allowlist, ranges, JSON, token check, bridge file 0600, superseded instance) when a Lua interpreter is installed (skipped otherwise; CI has none); token required; client-side allowlist rejection; reconnect after dropped response connections; fallback to the MCP bridge with no or a stale bridge file; one Lightroom snapshot per photo before its first write, never blocking it; select mode; crop changes after analysis seen only through the plug-in; sessions that span both bridges; a late reply owed to an engine that died never answers the next engine; readings from different bridges compared only on shared fields |
+| `providers.test.mjs` (5) | Codex, Claude on Bedrock and Claude through the Anthropic API reach the same decisions (Claude providers against a local fake of the Messages API); one call per scene batch; refusals and errors fail resumably; the schema sent to Claude keeps every enum, required field and closed object |
+| `cloud.test.mjs` (7) | TonePilot Cloud's handler with fakes for SSM, DynamoDB and Bedrock: tampered, re-signed, expired and malformed licenses → 401; over-limit, non-JPEG and oversize requests → 400 before the model or the counter; two concurrent requests at cap − 1 → exactly one 429; schema and model chosen by the server whatever the body says; log lines hold only licenseId, image count, tokens, ms, status (no prompt, image, answer, license signature or internal error); app-side error messages; the real engine through the handler on a local port reaches the same decisions as Codex |
 | `bridgepatch.test.mjs` (2) | Bridge patch adds exactly two keys with backups, idempotent, refuses other versions |
 | `bridge.test.mjs` (8) | Read-only selection, empty selection, over-limit selection, disconnected plug-in, unverified bridge version, pinned bridge, doctor completeness |
 | `benchmark.test.mjs` (7) | Wilson intervals, blind-scoring requirement, small samples never "validated", interval-based gates, per-skin-group and lighting breakdowns, calibration threshold, repeatability |
@@ -117,6 +119,8 @@ Conclusion: the engine itself is not the bottleneck at 500 photos; AI latency an
 The trade-off: a selection change is now noticed within 25 photos (usually sooner, when the sample lands on a changed photo) instead of at the next photo. Writes in that window still go only to authorized photos and still pass the per-photo identity and staleness checks; the interlock signals the photographer's intent, it is not what prevents a wrong write.
 
 ## Not yet measured
+
+- **TonePilot Cloud (`TonePilot/Cloud`) has never been deployed or called Bedrock.** It is simulated only: the handler runs locally against an in-memory usage store and the mock model. The SAM template is not validated (`sam validate` not run: SAM CLI not installed), the IAM resource ARN for the model is unverified, and its latency, token use and cost are estimates, not measurements.
 
 - **TonePilot's own Lightroom plug-in (`TonePilot/LightroomPlugin`) has never run inside Lightroom.** Its Lua is syntax-checked with `luac` 5.5 (Lightroom embeds Lua 5.1) and exercised only against stub SDK objects; the engine is tested only against a mock of its protocol. Snapshot support (`createDevelopSnapshot`), the History step name, and whether any `full` Develop value changes without an edit are unverified.
 

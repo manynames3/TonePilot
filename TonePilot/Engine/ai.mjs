@@ -1,7 +1,7 @@
 // Read-only image assessment. The model never sees Lightroom tools; whichever provider
-// runs it (the Codex CLI on the photographer's ChatGPT plan, or Claude on Amazon Bedrock
-// or the Anthropic API) returns a schema-constrained assessment that harmonize.mjs and
-// guard.mjs turn into (or refuse to turn into) bounded slider values.
+// runs it (the Codex CLI on the photographer's ChatGPT plan, Claude on Amazon Bedrock or the
+// Anthropic API, or TonePilot Cloud) returns a schema-constrained assessment that
+// harmonize.mjs and guard.mjs turn into (or refuse to turn into) bounded slider values.
 import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -168,7 +168,8 @@ function parseJSONLoose(s) {
 //   codex     — the Codex CLI signed in to the photographer's own ChatGPT plan (default)
 //   bedrock   — Claude on Amazon Bedrock, AWS credentials from the standard chain
 //   anthropic — Claude through the Anthropic API with an API key
-export const PROVIDERS = ['codex', 'bedrock', 'anthropic'];
+//   cloud     — TonePilot Cloud: the owner's backend runs Claude on Bedrock; the app holds a license
+export const PROVIDERS = ['codex', 'bedrock', 'anthropic', 'cloud'];
 export async function aiProvider(env = process.env) {
   const name = env.TONEPILOT_AI_PROVIDER || 'codex';
   if (name === 'codex') {
@@ -176,6 +177,7 @@ export async function aiProvider(env = process.env) {
     return {name, model: 'codex', run: args => runCodex({...args, codex})};
   }
   if (name === 'bedrock' || name === 'anthropic') return (await import('./claude.mjs')).claudeProvider(name, env);
+  if (name === 'cloud') return (await import('./cloud.mjs')).cloudProvider(env);
   throw new Error('Unknown AI provider: ' + name);
 }
 

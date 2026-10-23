@@ -7,6 +7,8 @@ import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {spawnSync, spawn} from 'node:child_process';
 import {test} from 'node:test';
+import {signLicense} from '../Cloud/license.mjs';
+import {TEST_SECRET} from './mock-cloud.mjs';
 
 const folder = dirname(fileURLToPath(import.meta.url));
 export const ENGINE = resolve(folder, '../Engine/engine.mjs');
@@ -15,6 +17,7 @@ const MOCK_PLUGIN = resolve(folder, 'mock-plugin.mjs');
 const MOCK_MODEL = resolve(folder, 'mock-model.mjs');
 const MOCK_ANALYZER = resolve(folder, 'mock-analyzer.mjs');
 const MOCK_CLAUDE = resolve(folder, 'mock-claude.mjs');
+const MOCK_CLOUD = resolve(folder, 'mock-cloud.mjs');
 for (const f of [MOCK_MODEL, MOCK_ANALYZER, MOCK_MCP]) chmodSync(f, 0o755);
 
 // The Lightroom bridges the workflow and recovery suites run against: the third-party MCP
@@ -35,13 +38,26 @@ function startPlugin(env) {
   return server;
 }
 
-// Starts the fake Messages API for the Claude providers and points the engine at it.
-function startClaude(env, provider) {
-  env.TONEPILOT_MOCK_CLAUDE_PORT = env.TONEPILOT_MOCK_STATE + '.port';
-  const server = spawn(process.execPath, [MOCK_CLAUDE], {env, stdio: ['pipe', 'ignore', 'inherit']});
-  for (let i = 0; i < 250 && !existsSync(env.TONEPILOT_MOCK_CLAUDE_PORT); i++) pause(20);
-  if (!existsSync(env.TONEPILOT_MOCK_CLAUDE_PORT)) { server.kill(); throw new Error('mock Messages API did not start'); }
-  Object.assign(env, {TONEPILOT_AI_PROVIDER: provider, TONEPILOT_AI_BASE_URL: 'http://127.0.0.1:' + readFileSync(env.TONEPILOT_MOCK_CLAUDE_PORT, 'utf8'),
+// Starts a fake AI service (a script that writes its port to <state>.port) and waits for it.
+function startService(script, env, portVar, name) {
+  env[portVar] = env.TONEPILOT_MOCK_STATE + '.port';
+  const server = spawn(process.execPath, [script], {env, stdio: ['pipe', 'ignore', 'inherit']});
+  for (let i = 0; i < 250 && !existsSync(env[portVar]); i++) pause(20);
+  if (!existsSync(env[portVar])) { server.kill(); throw new Error(name + ' did not start'); }
+  return {server, url: 'http://127.0.0.1:' + readFileSync(env[portVar], 'utf8')};
+}
+
+// The fake Messages API for the Claude providers, or TonePilot Cloud's real handler in front
+// of the fake model, with the engine pointed at it.
+function startAI(env, provider) {
+  if (provider === 'cloud') {
+    const {server, url} = startService(MOCK_CLOUD, env, 'TONEPILOT_MOCK_CLOUD_PORT', 'local TonePilot Cloud');
+    const expires = Math.floor(Date.now() / 1000) + 3600;
+    Object.assign(env, {TONEPILOT_AI_PROVIDER: 'cloud', TONEPILOT_CLOUD_URL: url, TONEPILOT_LICENSE: signLicense('test-license', expires, TEST_SECRET)});
+    return server;
+  }
+  const {server, url} = startService(MOCK_CLAUDE, env, 'TONEPILOT_MOCK_CLAUDE_PORT', 'mock Messages API');
+  Object.assign(env, {TONEPILOT_AI_PROVIDER: provider, TONEPILOT_AI_BASE_URL: url,
     ANTHROPIC_API_KEY: provider === 'anthropic' ? 'sk-ant-test-key' : ''});
   return server;
 }
@@ -68,7 +84,7 @@ export function setup({photos, selected, faults = {}, ai = {}, extra = {}, bridg
     TONEPILOT_RUNS_DIR: runs, TONEPILOT_SETTLE_MS: '0', TONEPILOT_WRITE_TIMEOUT_MS: '800', TONEPILOT_PREVIEW_RETRY_MS: '0',
     TONEPILOT_BRIDGE_FILE: join(temp, 'bridge.json')};
   const plugin = bridge === 'tonepilot' ? startPlugin(env) : null;
-  const claude = provider !== 'codex' ? startClaude(env, provider) : null;
+  const service = provider !== 'codex' ? startAI(env, provider) : null;
   const parse = out => out.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return {type: 'raw', line: l}; } });
   const run = (args, envExtra = {}) => {
     const r = spawnSync(process.execPath, [ENGINE, ...args], {env: {...env, ...envExtra}, encoding: 'utf8', timeout: 30000});
@@ -87,7 +103,9 @@ export function setup({photos, selected, faults = {}, ai = {}, extra = {}, bridg
     return r.complete.dir;
   };
   const sessions = () => readdirSync(runs).filter(n => n.startsWith('session-'));
-  const cleanup = () => { plugin?.kill(); claude?.kill(); rmSync(temp, {recursive: true, force: true}); };
-  const claudeCalls = () => (existsSync(state + '.claude') ? readFileSync(state + '.claude', 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []);
-  return {temp, state, runs, env, bridge, claudeCalls, run, start, get, set, show, journal, analyze, sessions, cleanup};
+  const cleanup = () => { plugin?.kill(); service?.kill(); rmSync(temp, {recursive: true, force: true}); };
+  const lines = suffix => (existsSync(state + suffix) ? readFileSync(state + suffix, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []);
+  const claudeCalls = () => lines('.claude');
+  const cloudLog = () => lines('.cloud');
+  return {temp, state, runs, env, bridge, claudeCalls, cloudLog, run, start, get, set, show, journal, analyze, sessions, cleanup};
 }

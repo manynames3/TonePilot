@@ -49,6 +49,11 @@ config.local.*
 .vscode/
 *.swp
 node_modules/
+
+# TonePilot Cloud build output and per-deployment SAM settings
+TonePilot/Cloud/.build/
+TonePilot/Cloud/.aws-sam/
+TonePilot/Cloud/samconfig.toml
 coverage/
 npm-debug.log*
 

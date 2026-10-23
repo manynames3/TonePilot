@@ -1,0 +1,12 @@
+{
+  "name": "tonepilot-cloud",
+  "private": true,
+  "type": "module",
+  "description": "TonePilot Cloud Lambda. The Claude SDKs are pinned to the Engine's versions (Engine/claude.mjs is reused as is); the AWS clients are for DynamoDB and SSM.",
+  "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "0.34.4",
+    "@anthropic-ai/sdk": "0.132.1",
+    "@aws-sdk/client-dynamodb": "3.1156.0",
+    "@aws-sdk/client-ssm": "3.1156.0"
+  }
+}

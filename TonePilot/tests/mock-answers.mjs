@@ -12,5 +12,5 @@ export function answerFor(state, ids, batch) {
   return !batch ? recordFor(ids[0])
     : {photos: ids.map((id, i) => ({index: i + 1, ...recordFor(id)})).slice(0, state.aiBatchMalformed ? -1 : undefined)};
 }
-// Mock previews are 'MOCKPREVIEW:<photo id>:…'.
+// Mock previews are FF D8 + 'MOCKPREVIEW:<photo id>:…'.
 export const photoIdOf = bytes => String(bytes).split(':')[1];
