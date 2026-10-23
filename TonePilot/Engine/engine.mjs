@@ -18,7 +18,7 @@ import {resolvePolicy} from './policy.mjs';
 import {loadLineage, originFor} from './lineage.mjs';
 import {groupScenes} from './scenes.mjs';
 import {decide} from './harmonize.mjs';
-import {buildPrompt, buildBatchPrompt, assessImage, assessBatch, BATCH_SIZE, pool} from './ai.mjs';
+import {buildPrompt, buildBatchPrompt, assessImage, assessBatch, aiProvider, BATCH_SIZE, pool} from './ai.mjs';
 import {runDoctor} from './doctor.mjs';
 import {previewBytes, savePreview} from './preview.mjs';
 import {ENGINE_VERSION} from './version.mjs';
@@ -29,7 +29,6 @@ const flag = n => argv.includes('--' + n);
 const mode = opt('mode', 'inspect');
 const root = process.env.TONEPILOT_PROJECT_DIR || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const runs = path.resolve(process.env.TONEPILOT_RUNS_DIR || path.join(root, 'runs'));
-const codexPath = process.env.TONEPILOT_CODEX || path.join(os.homedir(), '.local/bin/codex');
 // A write whose request may still be queued inside Lightroom is not declared
 // "not applied" until this long after it was sent.
 const SETTLE_MS = Number(process.env.TONEPILOT_SETTLE_MS ?? 60000);
@@ -210,15 +209,17 @@ async function runAnalysis(client, journal, dir) {
       const last = chunks.at(-1);
       if (last && last.length < AI_BATCH && sceneOf(last[0]) === sceneOf(p)) last.push(p); else chunks.push([p]);
     }
+    const provider = todo.length ? await aiProvider() : null;
     const onSpawn = c => { children.add(c); c.on('exit', () => children.delete(c)); };
     const record = (p, r) => {
-      journal.append('photo-assessed', r.error ? {photo: p.id, error: r.error} : {photo: p.id, ai: r.assessment, stats: r.stats});
+      journal.append('photo-assessed', r.error ? {photo: p.id, error: r.error}
+        : {photo: p.id, ai: r.assessment, stats: {...r.stats, provider: provider.name, model: provider.model}});
       emit('progress', {step: 'assess', phase: 'Assessing light, skin and exposure', index: ++done, total: supported().length, filename: p.filename});
     };
     const assessOne = async p => {
       try {
         const prompt = buildPrompt({photo: p, scene: sceneOf(p), policy: s.policy, enabled: s.config.enabled});
-        return await assessImage({jpeg: await fetchPreview(p.id), prompt, codex: codexPath, onSpawn});
+        return await assessImage({jpeg: await fetchPreview(p.id), prompt, provider, onSpawn});
       } catch (e) { return {error: String(e.message).slice(0, 200)}; }
     };
     await pool(chunks, AI_CONCURRENCY, async chunk => {
@@ -232,7 +233,7 @@ async function runAnalysis(client, journal, dir) {
       if (ready.length > 1) {
         try {
           const prompt = buildBatchPrompt({photos: ready, scene: sceneOf(ready[0]), policy: s.policy, enabled: s.config.enabled});
-          const results = await assessBatch({jpegs, prompt, codex: codexPath, onSpawn});
+          const results = await assessBatch({jpegs, prompt, provider, onSpawn});
           ready.forEach((p, i) => record(p, results[i]));
           return;
         } catch { /* fall back to one call per photo below */ }

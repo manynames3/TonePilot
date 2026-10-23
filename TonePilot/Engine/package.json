@@ -1,0 +1,10 @@
+{
+  "name": "tonepilot-engine",
+  "private": true,
+  "type": "module",
+  "description": "TonePilot's guarded engine. Dependencies are only for the optional Claude providers (Amazon Bedrock / Anthropic API); the Codex path needs none.",
+  "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "0.34.4",
+    "@anthropic-ai/sdk": "0.132.1"
+  }
+}

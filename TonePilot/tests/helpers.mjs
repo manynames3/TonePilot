@@ -14,6 +14,7 @@ const MOCK_MCP = resolve(folder, 'mock-lightroom.mjs');
 const MOCK_PLUGIN = resolve(folder, 'mock-plugin.mjs');
 const MOCK_MODEL = resolve(folder, 'mock-model.mjs');
 const MOCK_ANALYZER = resolve(folder, 'mock-analyzer.mjs');
+const MOCK_CLAUDE = resolve(folder, 'mock-claude.mjs');
 for (const f of [MOCK_MODEL, MOCK_ANALYZER, MOCK_MCP]) chmodSync(f, 0o755);
 
 // The Lightroom bridges the workflow and recovery suites run against: the third-party MCP
@@ -34,6 +35,17 @@ function startPlugin(env) {
   return server;
 }
 
+// Starts the fake Messages API for the Claude providers and points the engine at it.
+function startClaude(env, provider) {
+  env.TONEPILOT_MOCK_CLAUDE_PORT = env.TONEPILOT_MOCK_STATE + '.port';
+  const server = spawn(process.execPath, [MOCK_CLAUDE], {env, stdio: ['pipe', 'ignore', 'inherit']});
+  for (let i = 0; i < 250 && !existsSync(env.TONEPILOT_MOCK_CLAUDE_PORT); i++) pause(20);
+  if (!existsSync(env.TONEPILOT_MOCK_CLAUDE_PORT)) { server.kill(); throw new Error('mock Messages API did not start'); }
+  Object.assign(env, {TONEPILOT_AI_PROVIDER: provider, TONEPILOT_AI_BASE_URL: 'http://127.0.0.1:' + readFileSync(env.TONEPILOT_MOCK_CLAUDE_PORT, 'utf8'),
+    ANTHROPIC_API_KEY: provider === 'anthropic' ? 'sk-ant-test-key' : ''});
+  return server;
+}
+
 export function rawPhoto(filename, overrides = {}) {
   return {
     filename, path: '/Volumes/Test/' + filename, fileFormat: 'RAW', dateTimeOriginal: '2026-06-01 15:00:00',
@@ -45,7 +57,7 @@ export function rawPhoto(filename, overrides = {}) {
   };
 }
 
-export function setup({photos, selected, faults = {}, ai = {}, extra = {}, bridge = 'mcp'} = {}) {
+export function setup({photos, selected, faults = {}, ai = {}, extra = {}, bridge = 'mcp', provider = 'codex'} = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'tonepilot-test-'));
   const state = join(temp, 'state.json');
   const runs = join(temp, 'runs');
@@ -56,6 +68,7 @@ export function setup({photos, selected, faults = {}, ai = {}, extra = {}, bridg
     TONEPILOT_RUNS_DIR: runs, TONEPILOT_SETTLE_MS: '0', TONEPILOT_WRITE_TIMEOUT_MS: '800', TONEPILOT_PREVIEW_RETRY_MS: '0',
     TONEPILOT_BRIDGE_FILE: join(temp, 'bridge.json')};
   const plugin = bridge === 'tonepilot' ? startPlugin(env) : null;
+  const claude = provider !== 'codex' ? startClaude(env, provider) : null;
   const parse = out => out.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return {type: 'raw', line: l}; } });
   const run = (args, envExtra = {}) => {
     const r = spawnSync(process.execPath, [ENGINE, ...args], {env: {...env, ...envExtra}, encoding: 'utf8', timeout: 30000});
@@ -74,6 +87,7 @@ export function setup({photos, selected, faults = {}, ai = {}, extra = {}, bridg
     return r.complete.dir;
   };
   const sessions = () => readdirSync(runs).filter(n => n.startsWith('session-'));
-  const cleanup = () => { plugin?.kill(); rmSync(temp, {recursive: true, force: true}); };
-  return {temp, state, runs, env, bridge, run, start, get, set, show, journal, analyze, sessions, cleanup};
+  const cleanup = () => { plugin?.kill(); claude?.kill(); rmSync(temp, {recursive: true, force: true}); };
+  const claudeCalls = () => (existsSync(state + '.claude') ? readFileSync(state + '.claude', 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : []);
+  return {temp, state, runs, env, bridge, claudeCalls, run, start, get, set, show, journal, analyze, sessions, cleanup};
 }

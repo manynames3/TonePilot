@@ -1,6 +1,7 @@
-// Read-only image assessment through the Codex CLI. The model never sees Lightroom
-// tools; it returns a schema-constrained assessment that harmonize.mjs and guard.mjs
-// turn into (or refuse to turn into) bounded slider values.
+// Read-only image assessment. The model never sees Lightroom tools; whichever provider
+// runs it (the Codex CLI on the photographer's ChatGPT plan, or Claude on Amazon Bedrock
+// or the Anthropic API) returns a schema-constrained assessment that harmonize.mjs and
+// guard.mjs turn into (or refuse to turn into) bounded slider values.
 import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -163,6 +164,21 @@ function parseJSONLoose(s) {
   return JSON.parse(s.slice(a, b + 1));
 }
 
+// A provider turns (previews, prompt, schema) into {raw, stats}; nothing else.
+//   codex     — the Codex CLI signed in to the photographer's own ChatGPT plan (default)
+//   bedrock   — Claude on Amazon Bedrock, AWS credentials from the standard chain
+//   anthropic — Claude through the Anthropic API with an API key
+export const PROVIDERS = ['codex', 'bedrock', 'anthropic'];
+export async function aiProvider(env = process.env) {
+  const name = env.TONEPILOT_AI_PROVIDER || 'codex';
+  if (name === 'codex') {
+    const codex = env.TONEPILOT_CODEX || path.join(os.homedir(), '.local/bin/codex');
+    return {name, model: 'codex', run: args => runCodex({...args, codex})};
+  }
+  if (name === 'bedrock' || name === 'anthropic') return (await import('./claude.mjs')).claudeProvider(name, env);
+  throw new Error('Unknown AI provider: ' + name);
+}
+
 // One Codex call. The model runs in an empty private directory with a read-only
 // sandbox, so it cannot see session journals or anything else on disk worth reading.
 function runCodex({jpegs, prompt, schema, codex, timeoutMs, onSpawn}) {
@@ -210,17 +226,17 @@ function runCodex({jpegs, prompt, schema, codex, timeoutMs, onSpawn}) {
   });
 }
 
-export async function assessImage({jpeg, prompt, codex, timeoutMs = 120000, onSpawn}) {
-  const r = await runCodex({jpegs: [jpeg], prompt, schema: ASSESSMENT_SCHEMA, codex, timeoutMs, onSpawn});
+export async function assessImage({jpeg, prompt, provider, timeoutMs = 120000, onSpawn}) {
+  const r = await provider.run({jpegs: [jpeg], prompt, schema: ASSESSMENT_SCHEMA, timeoutMs, onSpawn});
   return {assessment: normalizeAssessment(r.raw), stats: {...r.stats, batch: 1}};
 }
 
 // Several photos in one call. Any doubt about which answer belongs to which image
 // (wrong count, missing or repeated number, an invalid entry) rejects the whole batch;
 // the engine then assesses those photos one call each. Stats are the call's, shared out.
-export async function assessBatch({jpegs, prompt, codex, timeoutMs = 120000 + 30000 * (jpegs.length - 1), onSpawn}) {
+export async function assessBatch({jpegs, prompt, provider, timeoutMs = 120000 + 30000 * (jpegs.length - 1), onSpawn}) {
   const n = jpegs.length;
-  const r = await runCodex({jpegs, prompt, schema: batchSchema(n), codex, timeoutMs, onSpawn});
+  const r = await provider.run({jpegs, prompt, schema: batchSchema(n), timeoutMs, onSpawn});
   const entries = r.raw?.photos;
   if (!Array.isArray(entries) || entries.length !== n) throw new Error('AI batch answer has the wrong number of photos');
   const byIndex = new Map(entries.map(e => [e?.index, e]));
