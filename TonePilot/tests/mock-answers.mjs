@@ -19,7 +19,7 @@ export const photoIdOf = bytes => String(bytes).split(':')[1];
 // Records any AI or AWS secret a child process could read into <state>.child-secrets
 // (TonePilot's helpers — the bridge, the Codex CLI, the analyzer — must see none).
 export function recordSecrets(who) {
-  const seen = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'TONEPILOT_LICENSE']
+  const seen = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'TONEPILOT_LICENSE']
     .filter(k => process.env[k]);
   if (seen.length && process.env.TONEPILOT_MOCK_STATE)
     fs.appendFileSync(process.env.TONEPILOT_MOCK_STATE + '.child-secrets', who + ': ' + seen.join(',') + '\n');

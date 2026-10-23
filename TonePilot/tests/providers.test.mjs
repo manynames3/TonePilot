@@ -163,7 +163,7 @@ test('compare-providers runs each provider read-only and reports agreement, repe
 test('no helper process (bridge, Codex CLI, analyzer) ever sees an AI or AWS secret', async () => {
   const {existsSync, readFileSync} = await import('node:fs');
   const secrets = {AWS_BEARER_TOKEN_BEDROCK: 'bedrock-test-key', AWS_SECRET_ACCESS_KEY: 'aws-test-secret', TONEPILOT_LICENSE: 'tp1.test',
-    ANTHROPIC_API_KEY: 'sk-ant-test-key', ANTHROPIC_AUTH_TOKEN: 'oauth-test'};
+    ANTHROPIC_API_KEY: 'sk-ant-test-key', ANTHROPIC_AUTH_TOKEN: 'oauth-test', OPENAI_API_KEY: 'sk-openai-test'};
   for (const provider of ['anthropic', 'codex']) {
     const x = setup({provider, photos: THREE()});
     try {
@@ -247,5 +247,48 @@ test('Codex runs a pinned model, the chosen reasoning level, and none of the pho
     const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)], {TONEPILOT_AI_MODEL: 'gpt-6-luna', TONEPILOT_AI_EFFORT: 'xhigh'});
     assert.ok(calls().slice(-3).every(c => c.model === 'gpt-6-luna' && c.config.includes('model_reasoning_effort="xhigh"')));
     assert.ok(x.journal(r.complete.dir).filter(r => r.type === 'photo-assessed').every(r => r.stats.model === 'gpt-6-luna@xhigh'));
+  } finally { x.cleanup(); }
+});
+
+test('OpenAI Decisions API: one typed-question call per photo, answers become the usual assessment', () => {
+  const x = setup({provider: 'openai', photos: THREE()});
+  try {
+    x.set(s => { s.ai = {101: {skip: false, confidence: 0.9, scene: '', illuminant: 'window', mixedLighting: false, backlit: false, intent: 'none',
+      skinCast: 'magenta', subjectExposure: 'ok', changes: [], reason: '', skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: 0, note: ''}}};
+      s.decisionScores = {tint: 1}; });
+    const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)], {TONEPILOT_AI_BATCH: '3'});
+    assert.equal(r.status, 0, JSON.stringify(r.error));
+    const calls = x.claudeCalls().filter(c => c.decisions);
+    assert.equal(calls.length, 3, 'a batch falls back to one call per photo');
+    assert.ok(calls.every(c => c.images === 1 && c.model === 'gpt-6-luna' && c.auth === 'Bearer sk-openai-test-key' && c.questions.length === 8));
+    const assessed = x.journal(r.complete.dir).filter(j => j.type === 'photo-assessed' && j.ai);
+    assert.equal(assessed.length, 3);
+    assert.ok(assessed.every(j => j.stats.provider === 'openai' && j.stats.model === 'gpt-6-luna' && j.stats.inputTokens === 3100));
+    const a = assessed.find(j => j.photo === '101').ai;
+    assert.deepEqual([a.skinTone.verdict, a.skinTone.tintShift, a.skinTone.temperatureShift, a.confidence, a.illuminant], ['too-magenta', -6, 0, 0.9, 'window']);
+    assert.deepEqual(a.proposed, {}, 'no free-form slider values from Decisions');
+  } finally { x.cleanup(); }
+});
+
+test('Decisions answers: refusals fail the photo; scores read back in the photo\'s own units', async () => {
+  const {toAssessment} = await import('../Engine/decisions.mjs');
+  const base = [{type: 'choice', name: 'skin', choice: 'too-cool', confidence: 0.8}, {type: 'choice', name: 'exposure', choice: 'ok', confidence: 0.7}];
+  assert.throws(() => toAssessment([...base, {type: 'refusal', name: 'light'}], 'kelvin'), /declined/);
+  assert.throws(() => toAssessment([base[1]], 'kelvin'), /declined/);
+  const k = toAssessment([...base, {type: 'score', name: 'temperature', score: 4.5}], 'kelvin');
+  assert.deepEqual([k.skinTone.temperatureShift, k.confidence, k.skinCast], [300, 0.7, 'too-cool']);
+  assert.equal(toAssessment([...base, {type: 'score', name: 'temperature', score: 5}], 'relative').skinTone.temperatureShift, 9);
+  const natural = toAssessment([{...base[0], choice: 'correct'}, base[1], {type: 'score', name: 'tint', score: 0}], 'kelvin');
+  assert.equal(natural.skinTone.tintShift, 0, 'no shift when the skin is natural');
+});
+
+test('doctor checks the OpenAI key without printing it and pings the Decisions API with text only', () => {
+  const x = setup({provider: 'openai'});
+  try {
+    const checks = x.run(['--mode', 'doctor', '--live']).complete.checks.filter(c => c.id.startsWith('ai'));
+    assert.ok(checks.every(c => c.ok), JSON.stringify(checks));
+    assert.ok(!JSON.stringify(checks).includes('sk-openai-test-key') && JSON.stringify(checks).includes('-key'));
+    const ping = x.claudeCalls().filter(c => c.decisions);
+    assert.deepEqual(ping.map(c => c.images), [0]);
   } finally { x.cleanup(); }
 });

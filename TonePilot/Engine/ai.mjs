@@ -170,7 +170,7 @@ function parseJSONLoose(s) {
 //   bedrock   — Claude on Amazon Bedrock, AWS credentials from the standard chain
 //   anthropic — Claude through the Anthropic API with an API key
 //   cloud     — TonePilot Cloud: the owner's backend runs Claude on Bedrock; the app holds a license
-export const PROVIDERS = ['codex', 'bedrock', 'anthropic', 'cloud'];
+export const PROVIDERS = ['codex', 'bedrock', 'anthropic', 'cloud', 'openai'];
 export async function aiProvider(env = process.env) {
   const name = env.TONEPILOT_AI_PROVIDER || 'codex';
   if (name === 'codex') {
@@ -181,6 +181,7 @@ export async function aiProvider(env = process.env) {
     return {name, model: model + '@' + (effort || 'default'), run: args => runCodex({...args, codex, model, effort})};
   }
   if (name === 'bedrock' || name === 'anthropic') return (await import('./claude.mjs')).claudeProvider(name, env);
+  if (name === 'openai') return (await import('./decisions.mjs')).decisionsProvider(env);
   if (name === 'cloud') return (await import('./cloud.mjs')).cloudProvider(env);
   throw new Error('Unknown AI provider: ' + name);
 }
@@ -240,8 +241,8 @@ function runCodex({jpegs, prompt, schema, codex, model, effort, timeoutMs, onSpa
   });
 }
 
-export async function assessImage({jpeg, prompt, provider, timeoutMs = 120000, onSpawn, signal}) {
-  const r = await provider.run({jpegs: [jpeg], prompt, schema: ASSESSMENT_SCHEMA, timeoutMs, onSpawn, signal});
+export async function assessImage({jpeg, prompt, provider, timeoutMs = 120000, onSpawn, signal, wbMode}) {
+  const r = await provider.run({jpegs: [jpeg], prompt, schema: ASSESSMENT_SCHEMA, timeoutMs, onSpawn, signal, wbMode});
   return {assessment: normalizeAssessment(r.raw), stats: {...r.stats, batch: 1}};
 }
 

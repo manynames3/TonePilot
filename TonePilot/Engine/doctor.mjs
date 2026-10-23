@@ -90,6 +90,23 @@ async function aiChecks(env, live) {
     return out;
   }
   if (!PROVIDERS.includes(name)) return [check('ai-provider', false, 'AI service', 'Unknown service “' + name + '”', 'Choose an AI service in Setup.')];
+  // OpenAI Decisions API: the key, and with --live one tiny text-only question.
+  if (name === 'openai') {
+    const key = env.OPENAI_API_KEY || '';
+    const out = [check('ai-credentials', !!key, 'OpenAI API key', key ? 'Saved, ending in ' + key.slice(-4) : 'Not set', key ? null : 'Add your OpenAI API key in Setup.')];
+    if (live && key) {
+      let ok = false, detail;
+      try {
+        const {decisionsProvider, DECISIONS_MODEL} = await import('./decisions.mjs');
+        const started = Date.now();
+        await decisionsProvider(env).call({model: DECISIONS_MODEL, input: 'The sky is blue.',
+          questions: [{type: 'predicate', name: 'ok', instructions: 'The statement is true.'}]}, {timeoutMs: 20000});
+        ok = true; detail = DECISIONS_MODEL + ' answered in ' + (Date.now() - started) + ' ms';
+      } catch (e) { detail = String(e?.message || e).slice(0, 200); }
+      out.push(check('ai-live', ok, 'AI service answered', detail, ok ? null : 'Check the API key and that your OpenAI account has API credit.'));
+    }
+    return out;
+  }
   // TonePilot Cloud holds the model credentials; here only its address and the license
   // (whose expiry is readable without the signing secret) are checked. No model call.
   if (name === 'cloud') {
