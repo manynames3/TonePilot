@@ -48,7 +48,7 @@ The prompt, the output schema and the Bedrock call are the Engine's own code (`a
 - **Cost alarm.** An AWS Budgets monthly cost budget e-mails `BudgetEmail` at 80% actual and 100% forecast. It alerts only; the caps and throttling are what limit spend.
 - **On the app side** the license is sent only over HTTPS (plain HTTP only to localhost), and server answers map to clear messages: "TonePilot license expired", "Daily limit reached", "AI service unavailable".
 
-Known limits: there is no revocation list (a license works until it expires, or until the secret is rotated, which ends all licenses once Lambda containers recycle), so keep licenses short (e.g. 31 days). A license is a bearer token: whoever holds it shares its cap. HTTP APIs end every request at 30 s, which suits one photo per call (the default); opt-in batches of several photos may not finish in time. Lambda's 6 MB request limit bounds a whole request (TonePilot's 1024-px previews are typically far smaller).
+Known limits: the stage throttle is shared, so anyone with the URL can use it up with invalid tokens and slow every paying user (add an AWS WAF rate-based rule per IP before launch). With opt-in batches, a failed batch call falls back to one call per photo and each reserves cap again. There is no revocation list (a license works until it expires, or until the secret is rotated, which ends all licenses once Lambda containers recycle), so keep licenses short (e.g. 31 days). A license is a bearer token: whoever holds it shares its cap. HTTP APIs end every request at 30 s, which suits one photo per call (the default); opt-in batches of several photos may not finish in time. Lambda's 6 MB request limit bounds a whole request (TonePilot's 1024-px previews are typically far smaller).
 
 ## Deploy (owner)
 
@@ -83,7 +83,7 @@ No request has run against Bedrock through this backend, so these are list-price
 | Item | Rough estimate |
 |---|---|
 | Claude Opus 5.5 per photo | ~$0.02–0.05, assuming ~2–3k input tokens (one 1024-px preview + prompt) and ~0.5–2k output tokens incl. thinking at medium effort, at Anthropic's list price of $4 / $20 per million tokens; Bedrock sets its own prices, and regional endpoints carry a 10% premium |
-| Worst case per license per day | `DailyPhotoCap` × per-photo cost: ~$20–50 at the default cap of 1,000 |
+| Worst case per license per day | Output is capped at 4,000 tokens per call (thinking included) and only the normalized assessment is returned, so a deliberately abusive request costs at most ~$0.09 (≈3k input + 4k output tokens at list price). At the default cap of 1,000 photos that bounds one license to ~$90/day; typical use ~$20–50. Lower `DailyPhotoCap` to match real customers |
 | Lambda (arm64, 512 MB, ~10 s/photo) | ~$0.07 per 1,000 photos |
 | API Gateway HTTP API | ~$0.001 per 1,000 requests |
 | DynamoDB on-demand (2 small writes/request) | well under $0.01 per 1,000 requests |
