@@ -54,7 +54,7 @@ test('a Claude refusal or error is an AI failure: the analysis stops resumably, 
     x.set(s => { s.claudeRefusal = true; });
     const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)]);
     assert.notEqual(r.status, 0);
-    assert.match(r.error.message, /failed for every photo \(AI declined/);
+    assert.match(r.error.message, /No photo could be assessed: AI declined/);
     const dir = r.events.find(e => e.type === 'session').dir;
     x.set(s => { s.claudeRefusal = false; s.aiFail = ['103']; });
     assert.equal(x.run(['--mode', 'analyze', '--resume', dir]).status, 0);
@@ -290,5 +290,19 @@ test('doctor checks the OpenAI key without printing it and pings the Decisions A
     assert.ok(!JSON.stringify(checks).includes('sk-openai-test-key') && JSON.stringify(checks).includes('-key'));
     const ping = x.claudeCalls().filter(c => c.decisions);
     assert.deepEqual(ping.map(c => c.images), [0]);
+  } finally { x.cleanup(); }
+});
+
+test('a ChatGPT plan usage limit is reported in plain words, and the analysis can resume after the reset', () => {
+  const x = setup({photos: THREE()});
+  try {
+    x.set(s => { s.codexError = 'You\u2019ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 4:35 AM.'; });
+    const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)]);
+    assert.notEqual(r.status, 0);
+    assert.match(r.error.message, /ChatGPT plan's Codex usage limit is reached; it resets at 4:35 AM/);
+    const dir = r.events.find(e => e.type === 'session').dir;
+    x.set(s => { delete s.codexError; });
+    assert.equal(x.run(['--mode', 'analyze', '--resume', dir]).status, 0);
+    assert.ok(x.show(dir).photos.every(p => p.state === 'proposed'));
   } finally { x.cleanup(); }
 });

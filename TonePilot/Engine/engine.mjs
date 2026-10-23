@@ -253,7 +253,7 @@ async function runAnalysis(client, journal, dir) {
     // A service-wide failure (signed out, offline) is not a plan: keep it resumable.
     const assessed = supported();
     if (assessed.length && assessed.every(p => !p.ai && p.aiError))
-      throw new Error('The AI service failed for every photo (' + assessed[0].aiError + '). Fix the AI service, then resume this analysis.');
+      throw new Error('No photo could be assessed: ' + assessed[0].aiError.replace(/\.?$/, '.') + ' Resume this analysis once that is fixed; nothing was changed in Lightroom.');
 
     // 5. Scene-consistent, policy-bounded decisions.
     emit('progress', {step: 'decide', phase: 'Building a consistent plan per scene'});

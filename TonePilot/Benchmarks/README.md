@@ -41,3 +41,15 @@ node TonePilot/Benchmarks/compare-providers.mjs run --ids '["123","456"]' --runs
 ```
 
 Per provider and model: decision and setting agreement with the first one tried (the baseline), its own run-to-run repeatability, failures, input/output tokens and seconds per photo, and USD per photo when you pass `--price` (USD per million input/output tokens, from the current price list — none is assumed). `report <session-dir> …` recomputes this for sessions you already have. Agreement is not quality: pick candidates here, then judge them blind with `evaluate.mjs`. The output folder holds descriptions of client photos; delete it afterwards.
+
+## How close is TonePilot to your own edits? — `vs-photographer.mjs`
+
+Read-only. Lightroom has one catalog open at a time, so it runs in two steps:
+
+1. **Main catalog:** select 30–50 photos you have already finished, then
+   `node TonePilot/Benchmarks/vs-photographer.mjs capture --out ~/tonepilot-reference.json`
+   to record each photo's final white balance and exposure. Nothing is changed.
+2. **Test catalog** (File → New Catalog) with fresh, unedited copies of the same files: select them, run TonePilot's analysis (any AI service), then
+   `node TonePilot/Benchmarks/vs-photographer.mjs compare ~/tonepilot-reference.json <session-dir>`.
+
+Per setting it reports how far the unedited photo was from your value, how far TonePilot's plan is, how many photos it moved closer or further, wrong-direction moves, and changes where you made none. Your edit may also use profiles, curves or masks, so this measures direction and distance, not taste. The reference file holds filenames: keep it private and delete it afterwards.

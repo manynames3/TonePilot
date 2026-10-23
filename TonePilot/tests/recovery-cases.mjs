@@ -317,7 +317,7 @@ export function recoveryTests(bridge) {
       x.set(s => { s.aiFail = ['101', '102', '103']; });
       const r = x.run(['--mode', 'analyze', '--ids', '["101","102","103"]']);
       assert.notEqual(r.status, 0);
-      assert.match(r.error.message, /failed for every photo/);
+      assert.match(r.error.message, /No photo could be assessed: .*nothing was changed in Lightroom/);
       const dir = r.events.find(e => e.type === 'session').dir;
       assert.equal(x.show(dir).status, 'analysis-failed');
       x.set(s => { s.aiFail = ['103']; });

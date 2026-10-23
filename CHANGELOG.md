@@ -2,7 +2,7 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
-## Unreleased
+## 0.6.0 — developer preview (October 23, 2026)
 
 - **Choose your AI service in Setup.** ChatGPT subscription (Codex CLI, default), Claude on Amazon Bedrock (region, optional AWS profile, optional Bedrock API key) or Claude through the Anthropic API, with Opus 5.5 (default), Sonnet 5.5 or Haiku 5.5. API keys live only in the macOS Keychain. Setup checks only the chosen service and, for Claude, makes one tiny live call; the app bundles the pinned Claude SDKs. Tested against a local fake of the API only: no real Bedrock or Anthropic call has been made yet.
 - **TonePilot Cloud backend (not deployed; simulated only).** `TonePilot/Cloud`: an AWS SAM stack (HTTP API, one Lambda, DynamoDB usage table, SSM-held license secret, 30-day logs, monthly budget alert) through which a licensed app uses Claude on Amazon Bedrock with the owner's IAM role, so no AWS credentials ship in the app. The server picks the model and the assessment schema, caps photos per license per day atomically, and logs no prompts, images or answers. Engine provider `cloud` (`TONEPILOT_CLOUD_URL`, `TONEPILOT_LICENSE`).
