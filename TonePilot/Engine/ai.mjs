@@ -187,6 +187,16 @@ export async function aiProvider(env = process.env) {
 }
 
 export const CODEX_MODEL = 'gpt-6.1-sol';
+
+// Codex reports account problems as events on stdout; say them in the photographer's words.
+function codexFailure(message) {
+  if (!message) return null;
+  if (/usage limit/i.test(message)) {
+    const reset = message.match(/try again at ([^.]+?)\.?$/i)?.[1];
+    return "Your ChatGPT plan's Codex usage limit is reached" + (reset ? '; it resets at ' + reset : '') + '.';
+  }
+  return 'AI unavailable: ' + String(message).slice(0, 160);
+}
 // The photographer's Codex plugins, apps, skills and tool servers have no place in a photo
 // assessment: they cost ~7,500 tokens a call and started unrelated tool servers (measured).
 const CODEX_LEAN = ['skills.include_instructions=false', 'features.plugins=false', 'features.apps=false',
@@ -213,7 +223,7 @@ function runCodex({jpegs, prompt, schema, codex, model, effort, timeoutMs, onSpa
       '--output-last-message', answer, prompt],
     {stdio: ['ignore', 'pipe', 'pipe'], cwd: dir, env: childEnv()});
     onSpawn?.(p);
-    let stdout = '', diagnostics = '', settled = false, usage = null;
+    let stdout = '', diagnostics = '', settled = false, usage = null, failure = null;
     const finish = (err, value) => {
       if (settled) return;
       settled = true; clearTimeout(timer);
@@ -226,13 +236,17 @@ function runCodex({jpegs, prompt, schema, codex, model, effort, timeoutMs, onSpa
       let i;
       while ((i = stdout.indexOf('\n')) >= 0) {
         const line = stdout.slice(0, i); stdout = stdout.slice(i + 1);
-        try { const ev = JSON.parse(line); if (ev.usage) usage = ev.usage; } catch { /* not an event line */ }
+        try {
+          const ev = JSON.parse(line);
+          if (ev.usage) usage = ev.usage;
+          if (ev.type === 'error' || ev.type === 'turn.failed') failure = ev.message || ev.error?.message || failure;
+        } catch { /* not an event line */ }
       }
     });
     p.stderr.on('data', x => { diagnostics = (diagnostics + String(x)).slice(-600); });
     p.on('error', e => finish(e));
     p.on('exit', (code, signal) => {
-      if (code !== 0) return finish(new Error('AI unavailable (' + (signal || 'exit ' + code) + '): ' + diagnostics.trim().slice(-160)));
+      if (code !== 0) return finish(new Error(codexFailure(failure) || 'AI unavailable (' + (signal || 'exit ' + code) + '): ' + diagnostics.trim().slice(-160)));
       try {
         finish(null, {raw: parseJSONLoose(fs.readFileSync(answer, 'utf8')),
           stats: {ms: Date.now() - started, inputTokens: usage?.input_tokens ?? null, outputTokens: usage?.output_tokens ?? null}});

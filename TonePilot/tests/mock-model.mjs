@@ -17,6 +17,11 @@ fs.appendFileSync(process.env.TONEPILOT_MOCK_STATE + '.codex', JSON.stringify({m
 const ids = images.map(f => photoIdOf(fs.readFileSync(f, 'utf8')));
 const state = JSON.parse(fs.readFileSync(process.env.TONEPILOT_MOCK_STATE, 'utf8'));
 if (ids.some(id => (state.aiFail || []).includes(id))) { process.stderr.write('model unavailable'); process.exit(1); }
+if (state.codexError) {   // as Codex reports a plan limit: JSON events on stdout, exit 1
+  process.stdout.write(JSON.stringify({type: 'error', message: state.codexError}) + '\n');
+  process.stdout.write(JSON.stringify({type: 'turn.failed', error: {message: state.codexError}}) + '\n');
+  process.exit(1);
+}
 const result = answerFor(state, ids, batch);
 const finish = () => {
   fs.writeFileSync(answer, JSON.stringify(result));
