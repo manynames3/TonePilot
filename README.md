@@ -5,7 +5,7 @@
 For portrait, family, wedding and event photographers who already know how to edit and are tired of fixing the same exposure and white-balance drift frame after frame. You select photos in Lightroom; TonePilot groups them into lighting scenes, proposes small corrections that make each scene consistent, and writes only the edits you approve. Lightroom stays your editor.
 
 > [!IMPORTANT]
-> **Developer preview · v0.5.0 · not for client work yet.** The safety and recovery engine passes 115 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. In real Lightroom, TonePilot has made 15 Develop writes (12 RAW, 3 HEIC), all verified by read-back, including white-balance corrections on RAW. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** See the [changelog](CHANGELOG.md). Time savings are unmeasured. See [what has actually been measured](docs/EVIDENCE.md).
+> **Developer preview · v0.6.0 · not for client work yet.** The safety and recovery engine passes 149 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. In real Lightroom, TonePilot has made 16 Develop writes (13 RAW, 3 HEIC), all verified by read-back, including white-balance corrections on RAW, and has compared AI services and models read-only on real photos. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** Time savings are unmeasured. See the [changelog](CHANGELOG.md) and [what has actually been measured](docs/EVIDENCE.md).
 
 <table>
 <tr>
@@ -21,7 +21,7 @@ For portrait, family, wedding and event photographers who already know how to ed
 
 1. **Reads your Lightroom selection** (up to 20 photos in this version) and saves every photo's original settings before anything else.
 2. **Measures each Lightroom preview on your Mac** — faces and skin, highlight headroom, capture time, flash — and **groups photos into lighting scenes**.
-3. **Asks an AI model for a judgment** of light, intent, skin cast and subject exposure. The model has no Lightroom access.
+3. **Asks the AI service you chose for a judgment** of light, intent, skin cast and subject exposure, in a strict typed format. The model has no Lightroom access.
 4. **Builds a consistent plan per scene**: darker frames are matched to their neighbours by measured face brightness; auto white-balance drift is synced within the same light; deliberate low-key, silhouette and high-key frames are left alone; brightening stops before it clips highlight detail.
 5. **You review and approve** each photo — original, proposed and (later) verified values, the reason, and what TonePilot could not judge.
 6. **Applies only what you approved**, one photo at a time, re-checking each photo first and reading every value back afterwards.
@@ -45,15 +45,27 @@ For portrait, family, wedding and event photographers who already know how to ed
 - Photos you edit after analysis are skipped. Restore only reverses TonePilot's own values while they're untouched; your later edits always win.
 - Running TonePilot again can't push a photo past one pass's limits.
 - Never touched: crop, masks, profiles, HSL, presets, metadata, ratings, export.
-- On JPEG, HEIC and TIFF files white balance can't be changed through the Lightroom bridge; TonePilot says so instead of guessing.
+- On JPEG, HEIC and TIFF files white balance needs a bridge that can write Lightroom's relative white balance; without one TonePilot says so instead of guessing.
+- API keys live only in the macOS Keychain and never reach the Lightroom bridge or any other helper process.
+
+## Choose your AI service
+
+| In Setup | What it is | Cost | Measured so far |
+|---|---|---|---|
+| **ChatGPT subscription** (default) | GPT-6.1-Sol through your signed-in Codex CLI | Uses your ChatGPT plan | 10 real photos × 2 runs: same decision both times on 10/10; ~12,400 tokens and ~9 s per photo |
+| **OpenAI Decisions** | GPT-6-Luna returning typed answers with a probability for every option | Your OpenAI API key, roughly $0.0003 a photo (estimate) | Built and tested against a fake API only |
+| **Amazon Bedrock** | Claude in your AWS account: Opus/Sonnet/Haiku 5.5, or Sonnet 4.6 / Haiku 4.5 / Opus 4.6 | Your AWS bill | Sonnet 4.6, Haiku 4.5 and Opus 4.6 run on one real photo |
+| **Anthropic API** | Claude with your API key | Pay per photo | Fake API only |
+
+[`Benchmarks/compare-providers.mjs`](TonePilot/Benchmarks/README.md) runs any of them side by side on your own selection, read-only, and reports agreement, repeatability, tokens, time and cost. A [TonePilot Cloud backend](TonePilot/Cloud/README.md) (AWS, not deployed) lets licensed users run Claude on the owner's Bedrock account without holding any AWS credentials.
 
 ## Your photos and privacy
 
-TonePilot sends 640-pixel Lightroom previews and the photo's current Develop values to the AI service **you** choose in Setup: your ChatGPT plan through the Codex CLI, Claude on Amazon Bedrock in your AWS account, or Claude through your Anthropic API key. Face and highlight measurements run on your Mac. Make sure you have your clients' consent and accept your AI provider's terms before using client work.
+TonePilot sends Lightroom previews (at most 1,024 pixels) and the photo's current Develop values to the AI service **you** choose in Setup. Nothing else leaves your Mac: face, skin and highlight measurements run locally, and your own Codex plugins, apps and skills are kept out of TonePilot's calls. Make sure you have your clients' consent and accept your AI provider's terms before using client work.
 
 ## Try the developer preview
 
-Test photos in a **backed-up, disposable catalog** only. Requirements: macOS 14+, Apple Silicon, Lightroom Classic, the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) 0.24.1, an AI service (a signed-in Codex CLI, Amazon Bedrock access, or an Anthropic API key), and the Xcode Command Line Tools and Node.js 18+ to build. The app bundles its own Node.js runtime.
+Test photos in a **backed-up, disposable catalog** only. Requirements: macOS 14+, Apple Silicon, Lightroom Classic, the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) 0.24.1, and one AI service from the table above. Building needs the Xcode Command Line Tools and Node.js 18+; the app itself ships its own Node.js runtime. TonePilot's own Lightroom plug-in, which will replace the third-party one, is included but not yet verified inside Lightroom.
 
 ```bash
 git clone https://github.com/manynames3/TonePilot.git
@@ -69,13 +81,15 @@ TonePilot's **Setup** screen checks all of the above and tells you how to fix an
 | Area | State |
 |---|---|
 | Durable sessions, recovery, verified writes, safe restore | Implemented; tested against a simulated Lightroom with fault injection |
-| Real Lightroom read path, measurements, scene grouping, planning | Verified read-only on 5 HEIC photos |
-| Real Develop writes | 15 in the owner's catalog, 15/15 verified; restore not yet exercised; test-catalog protocol ([gate G1](docs/VALIDATION.md)) not run |
-| White balance | Skin-tone verdict + measured colour-cast correction; verified writes on RAW; HEIC/JPEG need the TonePilot edition of the bridge |
+| Real Lightroom read path, measurements, scene grouping, planning | Verified read-only on HEIC and RAW photos |
+| Real Develop writes | 16 in the owner's catalog, 16/16 verified; restore not yet exercised; test-catalog protocol ([gate G1](docs/VALIDATION.md)) not run |
+| White balance | Skin-tone verdict + measured colour-cast correction; verified writes on RAW, which also switch Lightroom to Custom; HEIC/JPEG need a bridge that writes relative white balance |
+| AI services | Four behind one interface; Codex models compared on 10 real photos (GPT-6.1-Sol most consistent); Decisions API and Claude 5.5 not yet run for real |
+| TonePilot's own Lightroom plug-in | Built and tested against a mock; **not yet verified inside Lightroom** |
 | Multi-scene galleries | **Not yet run** |
 | Photographic quality, time saved | **Unmeasured** — blind benchmark harness ready ([gate G3](docs/VALIDATION.md)) |
 | Galleries over 20 photos | Not supported until scale gates pass |
-| Model consistency | Same photos analyzed twice agreed on 4 of 5 decisions |
+| Model consistency | GPT-6.1-Sol: same decision twice on 10/10 real photos; GPT-6-Luna 70–90% ([evidence](docs/EVIDENCE.md)) |
 | Signed and notarized installer | Scripts ready; not done |
 
 ## Documentation
@@ -87,4 +101,4 @@ TonePilot's **Setup** screen checks all of the above and tells you how to fix an
 - [Engine architecture and safety invariants](TonePilot/Engine/README.md)
 - [Source, build and tests](TonePilot/README.md)
 
-Not affiliated with or endorsed by Adobe, OpenAI or the Lightroom MCP project. Adobe Lightroom Classic is a trademark of Adobe. **License:** none assigned yet; public visibility does not grant permission to redistribute this code.
+Not affiliated with or endorsed by Adobe, OpenAI, Anthropic, Amazon or the Lightroom MCP project. Adobe Lightroom Classic is a trademark of Adobe. **License:** none assigned yet; public visibility does not grant permission to redistribute this code.

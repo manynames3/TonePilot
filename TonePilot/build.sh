@@ -15,7 +15,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-VERSION="0.5.0"
+VERSION="0.6.0"
 BUILD_NUMBER="${TONEPILOT_BUILD_NUMBER:-5}"
 APP="${TONEPILOT_APP_PATH:-$HOME/Applications/TonePilot.app}"
 SIGN_ID="${TONEPILOT_SIGN_IDENTITY:--}"
