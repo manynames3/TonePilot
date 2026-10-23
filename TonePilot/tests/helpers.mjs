@@ -29,12 +29,22 @@ export function eachBridge(name, fn) {
 }
 
 const pause = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+// A file a mock writes once it is listening: wait for its full contents, not just for it to
+// exist (under load the empty file can be seen before the write lands).
+function waitForFile(file, valid) {
+  for (let i = 0; i < 250; i++) {
+    try { const text = readFileSync(file, 'utf8'); if (valid(text)) return text; } catch { /* not there yet */ }
+    pause(20);
+  }
+  return null;
+}
 
 // Starts the fake TonePilot plug-in and waits (synchronously) for its bridge file.
 function startPlugin(env) {
   const server = spawn(process.execPath, [MOCK_PLUGIN], {env, stdio: ['pipe', 'ignore', 'inherit']});
-  for (let i = 0; i < 250 && !existsSync(env.TONEPILOT_BRIDGE_FILE); i++) pause(20);
-  if (!existsSync(env.TONEPILOT_BRIDGE_FILE)) { server.kill(); throw new Error('mock plug-in did not start'); }
+  if (!waitForFile(env.TONEPILOT_BRIDGE_FILE, text => { try { return !!JSON.parse(text).token; } catch { return false; } })) {
+    server.kill(); throw new Error('mock plug-in did not start');
+  }
   return server;
 }
 
@@ -42,9 +52,9 @@ function startPlugin(env) {
 function startService(script, env, portVar, name) {
   env[portVar] = env.TONEPILOT_MOCK_STATE + '.port';
   const server = spawn(process.execPath, [script], {env, stdio: ['pipe', 'ignore', 'inherit']});
-  for (let i = 0; i < 250 && !existsSync(env[portVar]); i++) pause(20);
-  if (!existsSync(env[portVar])) { server.kill(); throw new Error(name + ' did not start'); }
-  return {server, url: 'http://127.0.0.1:' + readFileSync(env[portVar], 'utf8')};
+  const port = waitForFile(env[portVar], text => /^\d+$/.test(text));
+  if (!port) { server.kill(); throw new Error(name + ' did not start'); }
+  return {server, url: 'http://127.0.0.1:' + port};
 }
 
 // The fake Messages API for the Claude providers, or TonePilot Cloud's real handler in front
@@ -58,7 +68,7 @@ function startAI(env, provider) {
   }
   const {server, url} = startService(MOCK_CLAUDE, env, 'TONEPILOT_MOCK_CLAUDE_PORT', 'mock Messages API');
   Object.assign(env, {TONEPILOT_AI_PROVIDER: provider, TONEPILOT_AI_BASE_URL: url,
-    ANTHROPIC_API_KEY: provider === 'anthropic' ? 'sk-ant-test-key' : ''});
+    ANTHROPIC_API_KEY: provider === 'anthropic' ? 'sk-ant-test-key' : '', OPENAI_API_KEY: provider === 'openai' ? 'sk-openai-test-key' : ''});
   return server;
 }
 

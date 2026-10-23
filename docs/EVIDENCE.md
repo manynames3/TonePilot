@@ -86,9 +86,24 @@ The owner's AWS account (us-east-1) answers on Bedrock's classic InvokeModel end
 
 All four judged the skin magenta (the measured white surfaces agree). *At Anthropic's list prices ($1/$5, $3/$15, $5/$25 per million tokens); Bedrock's own prices apply and regional `us.` profiles carry ~10% more. Direct Claude calls use ~9× fewer input tokens than Codex. No quality conclusion follows from one photo.
 
+## Codex models and reasoning levels (October 23, 2026, read-only)
+
+`compare-providers.mjs` on 10 RAW photos from the owner's catalog, two runs per setting (120 assessments, all succeeded). TonePilot's Codex calls now leave out the user's Codex plugins, apps and skills (they had added ~7,500 tokens a call and started an unrelated tool server).
+
+| Setting | Same decision twice | Same settings twice | Agrees with Sol default (decision / settings) | Proposed · flagged · unchanged | White-balance edits | Input / output tokens | Model time |
+|---|---:|---:|---:|---|---:|---:|---:|
+| GPT-6.1-Sol, default effort | 100% | 100% | — | 18 · 0 · 2 | 16/20 | 12,426 / 157 | 8.8 s |
+| GPT-6.1-Sol, low | 90% | 90% | 90% / 90% | 17 · 1 · 2 | 15/20 | 12,426 / 158 | 8.3 s |
+| GPT-6.1-Sol, medium | 90% | 90% | 100% / 100% | 17 · 1 · 2 | 15/20 | 12,426 / 200 | 9.7 s |
+| GPT-6-Luna, medium | 70% | 50% | 30% / 10% | 7 · 8 · 5 | 6/20 | 11,734 / 259 | 5.9 s |
+| GPT-6-Luna, extra high | 80% | 60% | 40% / 10% | 6 · 10 · 4 | 4/20 | 11,733 / 644 | 9.5 s |
+| GPT-6-Luna, max | 90% | 90% | 60% / 60% | 9 · 7 · 4 | 9/20 | 11,734 / 769 | 10.5 s |
+
+The skin verdicts were nearly the same everywhere (Sol at all three levels and Luna at extra high and max gave identical verdict counts; under/ok/over judgments agreed 90–100%). The difference is confidence: Luna reports lower confidence, so the Balanced threshold (tuned on Codex) flags 35–50% of its photos instead of editing them. Agreement and repeatability are not quality; whether these edits are right needs the blind evaluation.
+
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-145 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
+149 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|

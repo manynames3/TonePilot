@@ -6,13 +6,14 @@ import Security
 // UserDefaults; API keys only in the macOS Keychain, read fresh for each engine run.
 // TonePilot Cloud is set only through the launch environment until it is deployed.
 enum AIProvider: String, CaseIterable, Identifiable {
-    case codex, bedrock, anthropic, cloud
-    static let choices: [AIProvider] = [.codex, .bedrock, .anthropic]   // offered in Setup
+    case codex, openai, bedrock, anthropic, cloud
+    static let choices: [AIProvider] = [.codex, .openai, .bedrock, .anthropic]   // offered in Setup
     var id: String { rawValue }
     var isClaude: Bool { self == .bedrock || self == .anthropic }
     var name: String {
         switch self {
         case .codex: return "ChatGPT subscription"
+        case .openai: return "OpenAI Decisions"
         case .bedrock: return "Amazon Bedrock"
         case .anthropic: return "Anthropic API"
         case .cloud: return "TonePilot Cloud"
@@ -21,6 +22,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
     var tagline: String {
         switch self {
         case .codex: return "NO PER-PHOTO COST"
+        case .openai: return "FAST · PAY PER PHOTO"
         case .bedrock: return "YOUR AWS ACCOUNT"
         case .anthropic: return "PAY AS YOU GO"
         case .cloud: return "INCLUDED WITH YOUR LICENSE"
@@ -29,6 +31,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .codex: return "Uses your ChatGPT plan through the Codex CLI."
+        case .openai: return "Typed answers from GPT-6-Luna with your OpenAI API key."
         case .bedrock: return "Claude in your AWS account, which pays per photo."
         case .anthropic: return "Claude with your API key, billed per photo."
         case .cloud: return "Claude through TonePilot's service."
@@ -38,6 +41,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
     var destination: String {
         switch self {
         case .codex: return "your ChatGPT plan (Codex)"
+        case .openai: return "OpenAI's Decisions API (GPT-6-Luna)"
         case .bedrock: return "Claude on Amazon Bedrock"
         case .anthropic: return "Claude through the Anthropic API"
         case .cloud: return "TonePilot Cloud (Claude on Amazon Bedrock)"
@@ -46,6 +50,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
     var keyAccount: String? {
         switch self {
         case .codex, .cloud: return nil
+        case .openai: return "openai-api-key"
         case .bedrock: return "aws-bearer-token-bedrock"
         case .anthropic: return "anthropic-api-key"
         }
@@ -179,6 +184,7 @@ final class AIServiceSettings: ObservableObject {
         let d = UserDefaults.standard
         guard let provider = AIProvider(rawValue: d.string(forKey: "aiProvider") ?? "") else { return }
         env["TONEPILOT_AI_PROVIDER"] = provider.rawValue
+        if provider == .openai, let key = Keychain.read("openai-api-key") { env["OPENAI_API_KEY"] = key }
         guard provider.isClaude else { return }
         let saved = AIModel(rawValue: d.string(forKey: "aiModel") ?? "") ?? .opus
         env["TONEPILOT_AI_MODEL"] = (AIModel.choices(provider).contains(saved) ? saved : .opus).modelID(provider)

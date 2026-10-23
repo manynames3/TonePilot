@@ -170,21 +170,32 @@ function parseJSONLoose(s) {
 //   bedrock   — Claude on Amazon Bedrock, AWS credentials from the standard chain
 //   anthropic — Claude through the Anthropic API with an API key
 //   cloud     — TonePilot Cloud: the owner's backend runs Claude on Bedrock; the app holds a license
-export const PROVIDERS = ['codex', 'bedrock', 'anthropic', 'cloud'];
+export const PROVIDERS = ['codex', 'bedrock', 'anthropic', 'cloud', 'openai'];
 export async function aiProvider(env = process.env) {
   const name = env.TONEPILOT_AI_PROVIDER || 'codex';
   if (name === 'codex') {
     const codex = env.TONEPILOT_CODEX || path.join(os.homedir(), '.local/bin/codex');
-    return {name, model: 'codex', run: args => runCodex({...args, codex})};
+    // Pinned, so a new Codex default can't silently change TonePilot's judgments. Effort
+    // unset means the model's own default (low for gpt-6.1-sol).
+    const model = env.TONEPILOT_AI_MODEL || CODEX_MODEL, effort = env.TONEPILOT_AI_EFFORT || null;
+    return {name, model: model + '@' + (effort || 'default'), run: args => runCodex({...args, codex, model, effort})};
   }
   if (name === 'bedrock' || name === 'anthropic') return (await import('./claude.mjs')).claudeProvider(name, env);
+  if (name === 'openai') return (await import('./decisions.mjs')).decisionsProvider(env);
   if (name === 'cloud') return (await import('./cloud.mjs')).cloudProvider(env);
   throw new Error('Unknown AI provider: ' + name);
 }
 
+export const CODEX_MODEL = 'gpt-6.1-sol';
+// The photographer's Codex plugins, apps, skills and tool servers have no place in a photo
+// assessment: they cost ~7,500 tokens a call and started unrelated tool servers (measured).
+const CODEX_LEAN = ['skills.include_instructions=false', 'features.plugins=false', 'features.apps=false',
+  'include_environment_context=false', 'include_permissions_instructions=false', 'include_apps_instructions=false',
+  'include_collaboration_mode_instructions=false', 'web_search="disabled"'].flatMap(c => ['-c', c]);
+
 // One Codex call. The model runs in an empty private directory with a read-only
 // sandbox, so it cannot see session journals or anything else on disk worth reading.
-function runCodex({jpegs, prompt, schema, codex, timeoutMs, onSpawn}) {
+function runCodex({jpegs, prompt, schema, codex, model, effort, timeoutMs, onSpawn}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tonepilot-ai-'));
   fs.chmodSync(dir, 0o700);
   const answer = path.join(dir, 'answer.json'), schemaFile = path.join(dir, 'schema.json');
@@ -197,7 +208,8 @@ function runCodex({jpegs, prompt, schema, codex, timeoutMs, onSpawn}) {
   const started = Date.now();
   return new Promise((resolve, reject) => {
     const p = spawn(codex, ['exec', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--sandbox', 'read-only',
-      '--skip-git-repo-check', '--json', '--output-schema', schemaFile, ...images.flatMap(f => ['--image', f]),
+      '--skip-git-repo-check', '--json', ...CODEX_LEAN, '-m', model, ...(effort ? ['-c', 'model_reasoning_effort="' + effort + '"'] : []),
+      '--output-schema', schemaFile, ...images.flatMap(f => ['--image', f]),
       '--output-last-message', answer, prompt],
     {stdio: ['ignore', 'pipe', 'pipe'], cwd: dir, env: childEnv()});
     onSpawn?.(p);
@@ -229,8 +241,8 @@ function runCodex({jpegs, prompt, schema, codex, timeoutMs, onSpawn}) {
   });
 }
 
-export async function assessImage({jpeg, prompt, provider, timeoutMs = 120000, onSpawn, signal}) {
-  const r = await provider.run({jpegs: [jpeg], prompt, schema: ASSESSMENT_SCHEMA, timeoutMs, onSpawn, signal});
+export async function assessImage({jpeg, prompt, provider, timeoutMs = 120000, onSpawn, signal, wbMode}) {
+  const r = await provider.run({jpegs: [jpeg], prompt, schema: ASSESSMENT_SCHEMA, timeoutMs, onSpawn, signal, wbMode});
   return {assessment: normalizeAssessment(r.raw), stats: {...r.stats, batch: 1}};
 }
 

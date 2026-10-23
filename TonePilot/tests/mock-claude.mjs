@@ -13,11 +13,32 @@ const STATE = process.env.TONEPILOT_MOCK_STATE;
 const UNSUPPORTED = ['minimum', 'maximum', 'minLength', 'maxLength', 'minItems', 'maxItems'];
 const hasUnsupported = s => s && typeof s === 'object' && Object.entries(s).some(([k, v]) => UNSUPPORTED.includes(k) || hasUnsupported(v));
 
+// OpenAI Decisions API: typed answers built from the same mock assessment.
+function decisions(request, req, reply) {
+  const parts = Array.isArray(request.input) ? request.input.flatMap(m => m.content || []) : [];
+  const images = parts.filter(p => p.type === 'input_image');
+  fs.appendFileSync(STATE + '.claude', JSON.stringify({decisions: true, model: request.model, images: images.length,
+    questions: (request.questions || []).map(q => q.name), auth: req.headers.authorization || null}) + '\n');
+  if (!images.length) return reply(200, {answers: (request.questions || []).map(q => ({type: 'predicate', name: q.name, probability: 0.97})), usage: {input_tokens: 40}});
+  fs.appendFileSync(STATE + '.calls', images.length + '\n');
+  const id = photoIdOf(Buffer.from(images[0].image_url.split(',')[1], 'base64'));
+  const state = JSON.parse(fs.readFileSync(STATE, 'utf8'));
+  if ((state.aiFail || []).includes(id)) return reply(400, {error: {message: 'model unavailable'}});
+  const a = answerFor(state, [id], false), conf = a.confidence;
+  const pick = (name, value) => ({type: 'choice', name, choice: value, probabilities: [{value, probability: conf}], confidence: conf});
+  const level = n => ({type: 'score', name: n, score: state.decisionScores?.[n] ?? 3, probabilities: [], confidence: conf});
+  reply(200, {answers: [pick('skin', a.skinTone?.verdict || 'correct'), pick('exposure', a.subjectExposure), pick('intent', a.intent),
+    pick('light', a.illuminant), {type: 'predicate', name: 'mixed', probability: a.mixedLighting ? 0.9 : 0.1},
+    {type: 'predicate', name: 'backlit', probability: a.backlit ? 0.9 : 0.1}, level('temperature'), level('tint')],
+  usage: {input_tokens: 3100}});
+}
+
 const server = http.createServer((req, res) => {
   let body = '';
   req.on('data', chunk => { body += chunk; });
   req.on('end', () => {
     const reply = (status, obj) => { res.writeHead(status, {'content-type': 'application/json'}); res.end(JSON.stringify(obj)); };
+    if (req.method === 'POST' && req.url.endsWith('/v1/decisions')) return decisions(JSON.parse(body), req, reply);
     // The Messages API, or classic Bedrock InvokeModel (model in the path, answer schema as a forced tool).
     const classic = req.url.match(/\/model\/([^/]+)\/invoke$/);
     if (req.method !== 'POST' || !(classic || req.url.endsWith('/v1/messages'))) return reply(404, {type: 'error', error: {type: 'not_found_error', message: req.url}});

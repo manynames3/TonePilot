@@ -81,6 +81,14 @@ private struct AIServiceSection: View {
             }
             .padding(.top, 4)
             if ai.provider.isClaude { claudeSettings }
+            if ai.provider == .openai {
+                PaperCard(padding: 16) {
+                    keyField
+                    Label { Text(keyNote).fixedSize(horizontal: false, vertical: true) } icon: { Image(systemName: "lock") }
+                        .font(Theme.secondary).foregroundStyle(Theme.muted).padding(.top, 2)
+                }
+                .padding(.top, 2)
+            }
             if ai.saveFailed {
                 Callout(tone: .danger, systemImage: "key.slash", title: "The key wasn't saved",
                         message: "The macOS Keychain refused it. Try again, or check Keychain Access.")
@@ -122,14 +130,16 @@ private struct AIServiceSection: View {
         let bedrock = ai.provider == .bedrock
         return Field(label: bedrock ? "Bedrock API key · optional" : "API key",
                      action: ai.keyHint == nil ? nil : ("Remove saved key", { ai.removeKey(); Task { await model.checkSetup() } })) {
-            SecureField(ai.keyHint.map { "Saved  \($0)" } ?? (bedrock ? "Paste a Bedrock API key" : "Paste your key (sk-ant-…)"), text: $ai.newKey)
+            SecureField(ai.keyHint.map { "Saved  \($0)" } ?? (bedrock ? "Paste a Bedrock API key" : ai.provider == .openai ? "Paste your key (sk-…)" : "Paste your key (sk-ant-…)"), text: $ai.newKey)
         }
     }
 
     private var keyNote: String {
-        ai.provider == .bedrock
-            ? "Without a key, TonePilot uses your AWS sign-in (aws configure or aws sso login). Keys stay in your Mac's Keychain."
-            : "Create a key at console.anthropic.com. It stays in your Mac's Keychain, never in a file."
+        switch ai.provider {
+        case .bedrock: return "Without a key, TonePilot uses your AWS sign-in (aws configure or aws sso login). Keys stay in your Mac's Keychain."
+        case .openai: return "Create a key at platform.openai.com (API usage is billed separately from ChatGPT). It stays in your Mac's Keychain, never in a file."
+        default: return "Create a key at console.anthropic.com. It stays in your Mac's Keychain, never in a file."
+        }
     }
 }
 

@@ -222,7 +222,7 @@ async function runAnalysis(client, journal, dir) {
     const assessOne = async p => {
       try {
         const prompt = buildPrompt({photo: p, scene: sceneOf(p), policy: s.policy, enabled: s.config.enabled});
-        return await assessImage({jpeg: await fetchPreview(p.id), prompt, provider, onSpawn, signal: stopping.signal});
+        return await assessImage({jpeg: await fetchPreview(p.id), prompt, provider, onSpawn, signal: stopping.signal, wbMode: p.capabilities?.wbMode});
       } catch (e) { return {error: String(e.message).slice(0, 200)}; }
     };
     await pool(chunks, AI_CONCURRENCY, async chunk => {
