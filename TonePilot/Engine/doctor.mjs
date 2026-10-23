@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {LightroomMCP, readSelection, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
+import {connectLightroom, readSelection, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
+import {bridgeFile} from './tonepilot-bridge.mjs';
 
 const home = os.homedir();
 const run = (cmd, args, timeout = 8000) => spawnSync(cmd, args, {encoding: 'utf8', timeout});
@@ -42,8 +43,9 @@ function check(id, ok, title, detail, fix = null, severity = 'required') { retur
 export async function runDoctor({live = false} = {}) {
   const checks = [];
   const major = Number(process.versions.node.split('.')[0]);
-  checks.push(check('node', major >= 18, 'Node.js runtime', 'Node ' + process.versions.node,
-    major >= 18 ? null : 'Install Node.js 18 or newer.'));
+  const bundled = process.execPath.endsWith('.app/Contents/Helpers/node');
+  checks.push(check('node', major >= 18, 'Node.js runtime', 'Node ' + process.versions.node + (bundled ? ' (bundled)' : ' (system)'),
+    major >= 18 ? null : bundled ? 'Reinstall TonePilot.' : 'Install Node.js 18 or newer, or use a build that bundles Node.'));
 
   const app = lightroomApp();
   checks.push(check('lightroom-installed', app, 'Lightroom Classic installed', app || 'Not found',
@@ -52,9 +54,19 @@ export async function runDoctor({live = false} = {}) {
   checks.push(check('lightroom-running', running, 'Lightroom Classic running', running ? 'Running' : 'Not running',
     running ? null : 'Open Lightroom Classic with the catalog you want to edit.'));
 
+  // TonePilot's own plug-in, when running, replaces the MCP bridge; the MCP checks then
+  // become recommendations only.
+  let own = null;
+  try { own = JSON.parse(fs.readFileSync(bridgeFile(), 'utf8')); } catch { /* not installed or never started */ }
+  const ownListening = !!own && /LISTEN/.test(run('/usr/sbin/lsof', ['-nP', '-iTCP:' + Number(own.requestPort), '-sTCP:LISTEN']).stdout || '');
+  // Shown only once installed: it isn't verified inside Lightroom yet, so setup doesn't ask for it.
+  if (own) checks.push(check('tonepilot-plugin', ownListening, 'TonePilot Lightroom plug-in', ownListening ? 'Listening (version ' + (own.plugin || '?') + ')' : 'Not running',
+    ownListening ? null : 'Restart Lightroom Classic; until then the Lightroom MCP bridge is used.', 'recommended'));
+  const mcpSeverity = ownListening ? 'recommended' : 'required';
+
   const version = pluginVersion();
   checks.push(check('plugin', version, 'Lightroom MCP plug-in', version ? 'Version ' + version : 'Not installed',
-    version ? null : 'Install the Lightroom MCP plug-in (github.com/Automaat/lightroom-mcp), then enable it in File → Plug-in Manager.'));
+    version ? null : 'Install the Lightroom MCP plug-in (github.com/Automaat/lightroom-mcp), then enable it in File → Plug-in Manager.', mcpSeverity));
   if (version) {
     checks.push(check('plugin-version', version === TESTED_BRIDGE_VERSION, 'Plug-in version verified',
       version === TESTED_BRIDGE_VERSION ? 'Matches the tested version' : 'Installed ' + version + '; TonePilot was verified with ' + TESTED_BRIDGE_VERSION,
@@ -62,7 +74,7 @@ export async function runDoctor({live = false} = {}) {
   }
   const listening = /LISTEN/.test(run('/usr/sbin/lsof', ['-nP', '-iTCP:58763', '-sTCP:LISTEN']).stdout || '');
   checks.push(check('plugin-server', listening, 'Plug-in server listening', listening ? 'Port 58763' : 'Not listening',
-    listening ? null : 'In Lightroom: File → Plug-in Manager → Lightroom MCP → Start Server.'));
+    listening ? null : 'In Lightroom: File → Plug-in Manager → Lightroom MCP → Start Server.', mcpSeverity));
   const server = bridgeServer();
   checks.push(check('bridge-server', server.ok, 'Bridge server ' + TESTED_BRIDGE_VERSION, server.where,
     server.ok ? null : 'Connect to the internet once so the pinned bridge can be downloaded, or use a bundled build.', 'recommended'));
@@ -89,21 +101,20 @@ export async function runDoctor({live = false} = {}) {
   checks.push(check('storage', writable, 'Session records', writable ? 'Private folder ready' : 'Not writable',
     writable ? null : 'Check permissions on ~/Library/Application Support/TonePilot.'));
 
-  if (live && running && listening) {
-    let detail, ok = false;
-    const client = new LightroomMCP({timeout: 15000});
+  if (live && running && (listening || ownListening)) {
+    let detail, ok = false, client = null;
     try {
-      await client.connect();
+      client = await connectLightroom();
       const sel = await readSelection(client, 1);
       ok = true;
-      detail = 'Bridge ' + (client.serverInfo?.version || '?') + ' answered; ' + sel.count + ' photo' + (sel.count === 1 ? '' : 's') + ' selected';
+      detail = (client.kind === 'tonepilot' ? 'TonePilot plug-in ' : 'Bridge ') + (client.serverInfo?.version || '?') + ' answered; ' + sel.count + ' photo' + (sel.count === 1 ? '' : 's') + ' selected';
       const relative = !!client.writableKeys?.has('IncrementalTemperature') && !!client.writableKeys?.has('IncrementalTint');
       checks.push(check('relative-wb', relative, 'White balance on JPEG, HEIC and TIFF',
         relative ? 'The bridge can read and write Lightroom\'s relative white balance' : 'The installed bridge can only change white balance on RAW files',
         relative ? null : 'iPhone and other JPEG/HEIC photos need a bridge that supports Lightroom\'s IncrementalTemperature/IncrementalTint. RAW files are not affected.',
         'recommended'));
     } catch (e) { detail = e.message; }
-    finally { await client.close(); }
+    finally { await client?.close(); }
     checks.push(check('live-bridge', ok, 'Live Lightroom connection', detail,
       ok ? null : 'Restart the plug-in server in Lightroom’s Plug-in Manager and try again.'));
   }

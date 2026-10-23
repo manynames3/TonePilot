@@ -78,6 +78,11 @@ test('doctor reports every required check and never needs Lightroom to answer', 
     const ids = r.complete.checks.map(c => c.id);
     for (const id of ['node', 'lightroom-installed', 'lightroom-running', 'plugin', 'plugin-server', 'codex', 'analyzer', 'storage']) assert.ok(ids.includes(id), id);
     assert.ok(r.complete.checks.every(c => typeof c.title === 'string' && (c.ok || c.fix)), 'every failing check says how to fix it');
+    assert.ok(!ids.includes('tonepilot-plugin'), 'setup never asks for the unverified TonePilot plug-in');
+    writeFileSync(x.env.TONEPILOT_BRIDGE_FILE, JSON.stringify({requestPort: 1, responsePort: 2, token: 'x'}));
+    const own = x.run(['--mode', 'doctor']).complete.checks.find(c => c.id === 'tonepilot-plugin');
+    assert.equal(own.ok, false, 'installed but not listening');
+    assert.equal(own.severity, 'recommended');
   } finally { x.cleanup(); }
 });
 

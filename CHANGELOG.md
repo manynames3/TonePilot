@@ -2,6 +2,15 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
+## Unreleased
+
+- **Node.js is bundled.** The build ships the official Node.js 22.23.4 runtime (checksum-verified, signed with the app); TonePilot no longer needs Node installed, and the engine, bridge and Codex CLI all run on it.
+- **Scene-batched AI assessment (opt-in, `TONEPILOT_AI_BATCH=2…6`).** Up to six photos of one lighting scene share one Codex call, with a per-photo fallback when the answer can't be matched to its photos. Measured on a real preview: about 72% fewer input tokens and 58% less model time per photo. It stays off by default because frames that differ in one call were judged against each other (6/12 decisions within tolerance of per-photo calls).
+- **TonePilot's own Lightroom plug-in** (`TonePilot/LightroomPlugin`, not yet verified inside Lightroom). A localhost-only, token-protected socket with eight actions and one Develop write action limited to TonePilot's ten keys, recorded in History as "TonePilot first pass". It reports every scalar Develop value, so staleness and read-back checks also see crop, profile, lens and other changes the MCP bridge cannot. The engine uses it when it is running and otherwise falls back to the Lightroom MCP bridge unchanged.
+- **Lightroom snapshot before the first write** to each photo ("TonePilot before …"), best effort and journaled, with TonePilot's plug-in.
+- **`select` engine mode** for a future "Show in Lightroom" button.
+- **Previews capped at 1024 px.** Lightroom sometimes answers a failed preview request with the full-size image (a 5472 × 3648 CR3 was sent to the model); previews are now scaled down locally before measurement and assessment, never up.
+
 ## 0.5.0 — developer preview (October 22, 2026)
 
 The 0.4 audit ([docs/AUDIT.md](docs/AUDIT.md)) found that recovery could fail silently, repeated runs could compound edits, and editing decisions were single-photo AI guesses. 0.5 rebuilds the engine, the editing logic and the app.

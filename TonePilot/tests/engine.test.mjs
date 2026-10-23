@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {validateSettings, classifyWrite, restorePlan, classifyRestore, diffSnapshot, capabilitiesOf} from '../Engine/guard.mjs';
 import {resolvePolicy} from '../Engine/policy.mjs';
-import {setup, rawPhoto} from './helpers.mjs';
+import {setup, eachBridge, rawPhoto} from './helpers.mjs';
 
 const ALL = {wb: true, exposure: true, tone: true};
 const caps = resolvePolicy('Natural', 'Balanced').caps;
@@ -68,8 +68,8 @@ test('guard: format capabilities are explicit about what cannot be written', () 
   assert.deepEqual(diffSnapshot({a: 1, hsl: {x: 1}}, {a: 1, hsl: {x: 2}}), ['hsl']);
 });
 
-test('analysis never writes; apply needs confirmation; restore undoes exactly; repeat restore is a no-op', () => {
-  const x = setup({photos: {101: rawPhoto('A_0101.CR3', {metrics: {faceLuma: 0.08, clip: 0.001}})}});
+eachBridge('analysis never writes; apply needs confirmation; restore undoes exactly; repeat restore is a no-op', bridge => {
+  const x = setup({bridge, photos: {101: rawPhoto('A_0101.CR3', {metrics: {faceLuma: 0.08, clip: 0.001}})}});
   try {
     const dir = x.analyze(['101']);
     assert.equal(x.get().writes.length, 0, 'analysis must never edit photos');
@@ -98,8 +98,8 @@ test('analysis never writes; apply needs confirmation; restore undoes exactly; r
   } finally { x.cleanup(); }
 });
 
-test('a changed Lightroom selection blocks applying a plan', () => {
-  const x = setup();
+eachBridge('a changed Lightroom selection blocks applying a plan', bridge => {
+  const x = setup({bridge});
   try {
     const dir = x.analyze(['101']);
     x.set(s => { s.selected = []; });
@@ -110,8 +110,8 @@ test('a changed Lightroom selection blocks applying a plan', () => {
   } finally { x.cleanup(); }
 });
 
-test('an unrelated manual edit after analysis makes only that photo stale; others still apply', () => {
-  const x = setup({photos: {101: rawPhoto('A_0101.CR3'), 102: rawPhoto('A_0102.CR3')},
+eachBridge('an unrelated manual edit after analysis makes only that photo stale; others still apply', bridge => {
+  const x = setup({bridge, photos: {101: rawPhoto('A_0101.CR3'), 102: rawPhoto('A_0102.CR3')},
     extra: {aiDefault: {skip: false, confidence: 0.95, scene: 'shade', illuminant: 'open-shade', mixedLighting: false, backlit: false,
       intent: 'none', skinCast: 'none', subjectExposure: 'under', changes: [{setting: 'Exposure2012', value: 0.4}], reason: 'under'}}});
   try {
@@ -130,8 +130,8 @@ test('an unrelated manual edit after analysis makes only that photo stale; other
   } finally { x.cleanup(); }
 });
 
-test('Lightroom metadata changes (rating, keywords) do not block Develop edits', () => {
-  const x = setup();
+eachBridge('Lightroom metadata changes (rating, keywords) do not block Develop edits', bridge => {
+  const x = setup({bridge});
   try {
     const dir = x.analyze(['101']);
     x.set(s => { s.photos[101].rating = 5; s.photos[101].keywords = ['bride']; });
@@ -140,8 +140,8 @@ test('Lightroom metadata changes (rating, keywords) do not block Develop edits',
   } finally { x.cleanup(); }
 });
 
-test('approving a subset applies only those photos; the rest stay available', () => {
-  const x = setup({photos: {101: rawPhoto('A_0101.CR3'), 102: rawPhoto('A_0102.CR3')},
+eachBridge('approving a subset applies only those photos; the rest stay available', bridge => {
+  const x = setup({bridge, photos: {101: rawPhoto('A_0101.CR3'), 102: rawPhoto('A_0102.CR3')},
     extra: {aiDefault: {skip: false, confidence: 0.95, scene: 's', illuminant: 'daylight', mixedLighting: false, backlit: false,
       intent: 'none', skinCast: 'none', subjectExposure: 'under', changes: [{setting: 'Exposure2012', value: 0.4}], reason: 'r'}}});
   try {
@@ -153,11 +153,11 @@ test('approving a subset applies only those photos; the rest stay available', ()
   } finally { x.cleanup(); }
 });
 
-test('unsupported files are explained, not guessed at', () => {
+eachBridge('unsupported files are explained, not guessed at', bridge => {
   const heic = rawPhoto('IMG_9001.HEIC', {fileFormat: 'HEIC', settings: {whiteBalance: 'As Shot', exposure: 0, contrast: 0, highlights: -30, shadows: 20, whites: -10, blacks: -40}});
   const video = rawPhoto('CLIP.MOV', {fileFormat: 'VIDEO'});
   const legacy = rawPhoto('OLD.NEF', {settings: {whiteBalance: 'As Shot', temperature: 5000, tint: 0}});
-  const x = setup({photos: {201: heic, 202: video, 203: legacy},
+  const x = setup({bridge, photos: {201: heic, 202: video, 203: legacy},
     extra: {aiDefault: {skip: false, confidence: 0.95, scene: 's', illuminant: 'daylight', mixedLighting: false, backlit: false,
       intent: 'none', skinCast: 'green', subjectExposure: 'under',
       changes: [{setting: 'Exposure2012', value: 0.4}, {setting: 'Tint', value: -6}], reason: 'r'}}});
@@ -173,10 +173,10 @@ test('unsupported files are explained, not guessed at', () => {
   } finally { x.cleanup(); }
 });
 
-test('repeated sessions cannot compound past the cumulative cap; a manual edit resets ownership', () => {
+eachBridge('repeated sessions cannot compound past the cumulative cap; a manual edit resets ownership', bridge => {
   const ai = {skip: false, confidence: 0.95, scene: 's', illuminant: 'daylight', mixedLighting: false, backlit: false,
     intent: 'none', skinCast: 'none', subjectExposure: 'under', reason: 'under'};
-  const x = setup({photos: {101: rawPhoto('A_0101.CR3', {metrics: {faceLuma: 0.03, clip: 0, clipAtEV: Array(20).fill(0)}})}});
+  const x = setup({bridge, photos: {101: rawPhoto('A_0101.CR3', {metrics: {faceLuma: 0.03, clip: 0, clipAtEV: Array(20).fill(0)}})}});
   try {
     x.set(s => { s.aiDefault = {...ai, changes: [{setting: 'Exposure2012', value: 1.5}]}; });
     const one = x.analyze(['101'], ['--strength', 'Balanced']);
@@ -196,8 +196,8 @@ test('repeated sessions cannot compound past the cumulative cap; a manual edit r
   } finally { x.cleanup(); }
 });
 
-test('sessions survive relaunch: the list is rebuilt from journals with derived status', () => {
-  const x = setup();
+eachBridge('sessions survive relaunch: the list is rebuilt from journals with derived status', bridge => {
+  const x = setup({bridge});
   try {
     const dir = x.analyze(['101']);
     x.run(['--mode', 'apply', '--session', dir, '--confirm']);

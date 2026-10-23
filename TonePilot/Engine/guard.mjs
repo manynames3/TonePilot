@@ -114,11 +114,33 @@ function stable(value) {
   }
   return value;
 }
-// Bridge-exposed Develop fields that differ. The bridge exposes ~25 fields; masks, crop,
-// profile, lens and calibration are not visible to any check made through it.
+// TonePilot's plug-in also reports every scalar Develop value under `full`, by SDK key.
+// Keys the bridges already report under their own names are not counted twice.
+const REPORTED = {...FIELD, Contrast2012: 'contrast', Texture: 'texture', Clarity2012: 'clarity', Dehaze: 'dehaze',
+  Vibrance: 'vibrance', Saturation: 'saturation', ConvertToGrayscale: 'convertToGrayscale', ToneCurveName2012: 'toneCurveName',
+  ParametricShadows: 'parametricShadows', ParametricDarks: 'parametricDarks', ParametricLights: 'parametricLights',
+  ParametricHighlights: 'parametricHighlights'};
+function flatten(snapshot, withFull) {
+  const {full, ...rest} = snapshot || {};
+  if (withFull) for (const [k, v] of Object.entries(full)) if (!(REPORTED[k] in rest)) rest[k] = v;
+  return rest;
+}
+
+// Develop fields that differ. The MCP bridge exposes ~25 fields; masks, crop, profile,
+// lens and calibration are not visible to any check made through it. TonePilot's plug-in
+// adds every scalar Develop value; those are compared only when both sides have them
+// (a session can be analyzed through one bridge and applied through the other).
 export function diffSnapshot(before, after) {
   const changed = [];
-  for (const key of new Set([...Object.keys(before || {}), ...Object.keys(after || {})])) {
+  const withFull = !!before?.full && !!after?.full;
+  // Only TonePilot's plug-in reports `full`. Readings from different bridges are compared
+  // on the fields both report: a field one bridge lacks (e.g. relative white balance on
+  // the stock MCP bridge) is not a change.
+  const mixed = !!before?.full !== !!after?.full;
+  before = flatten(before, withFull); after = flatten(after, withFull);
+  const keys = mixed ? Object.keys(before || {}).filter(k => k in (after || {}))
+    : new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const key of keys) {
     const a = before?.[key], b = after?.[key];
     if (typeof a === 'number' && typeof b === 'number') { if (Math.abs(a - b) > 1e-4) changed.push(key); continue; }
     if (JSON.stringify(stable(a)) !== JSON.stringify(stable(b))) changed.push(key);
@@ -131,11 +153,10 @@ export function diffSnapshot(before, after) {
 // settings: the values a write sets. Selecting a preset mode (As Shot, Auto, Daylight…)
 // recomputes the white-balance numbers; Custom keeps them.
 function touchedFields(settings) {
-  const keys = Object.keys(settings);
-  const fields = new Set(keys.map(k => FIELD[k]));
-  if (keys.some(k => WB_KEYS.includes(k))) fields.add('whiteBalance');
-  if ('WhiteBalance' in settings && settings.WhiteBalance !== 'Custom') for (const k of WB_KEYS) fields.add(FIELD[k]);
-  return fields;
+  const keys = new Set(Object.keys(settings));
+  if ([...keys].some(k => WB_KEYS.includes(k))) keys.add('WhiteBalance');
+  if ('WhiteBalance' in settings && settings.WhiteBalance !== 'Custom') for (const k of WB_KEYS) keys.add(k);
+  return new Set([...keys].flatMap(k => [FIELD[k], k]));
 }
 
 // Lightroom's SDK changes Temperature/Tint without updating the WB mode label (observed

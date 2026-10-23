@@ -29,9 +29,11 @@ enum Paths {
     private static func firstExecutable(_ candidates: [String]) -> String? {
         candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
+    // The Node.js runtime bundled by build.sh; builds without it fall back to a system Node.
     static var node: String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return firstExecutable([UserDefaults.standard.string(forKey: "nodePath") ?? "",
+        return firstExecutable([Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/node").path,
+                                UserDefaults.standard.string(forKey: "nodePath") ?? "",
                                 "/opt/homebrew/bin/node", "/usr/local/bin/node", home + "/.local/bin/node", home + "/.volta/bin/node"])
     }
     static var codex: String? {
@@ -64,7 +66,7 @@ final class EngineRunner {
     func stop() { process?.terminate() }
 
     func run(_ arguments: [String], onEvent: @escaping (EngineEvent) -> Void) async throws -> EngineResult {
-        guard let node = Paths.node else { throw EngineFailure.missing("Node.js was not found. Install Node.js 18 or newer.") }
+        guard let node = Paths.node else { throw EngineFailure.missing("Node.js was not found. Reinstall TonePilot.") }
         guard let engine = Paths.engine else { throw EngineFailure.missing("The TonePilot engine is missing from the app bundle. Reinstall TonePilot.") }
         try? FileManager.default.createDirectory(at: Paths.runs, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
@@ -74,7 +76,8 @@ final class EngineRunner {
         task.currentDirectoryURL = Paths.support
         var env = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        env["PATH"] = home + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        // The same Node runs the engine, the bridge and Node-based tools such as the Codex CLI.
+        env["PATH"] = URL(fileURLWithPath: node).deletingLastPathComponent().path + ":" + home + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         env["TONEPILOT_PROJECT_DIR"] = Paths.support.path
         env["TONEPILOT_RUNS_DIR"] = Paths.runs.path
         env["TONEPILOT_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)

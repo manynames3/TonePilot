@@ -5,7 +5,7 @@
 For portrait, family, wedding and event photographers who already know how to edit and are tired of fixing the same exposure and white-balance drift frame after frame. You select photos in Lightroom; TonePilot groups them into lighting scenes, proposes small corrections that make each scene consistent, and writes only the edits you approve. Lightroom stays your editor.
 
 > [!IMPORTANT]
-> **Developer preview · v0.5.0 · not for client work yet.** The safety and recovery engine passes 78 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. In real Lightroom, TonePilot has made 15 Develop writes (12 RAW, 3 HEIC), all verified by read-back, including white-balance corrections on RAW. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** See the [changelog](CHANGELOG.md). Time savings are unmeasured. See [what has actually been measured](docs/EVIDENCE.md).
+> **Developer preview · v0.5.0 · not for client work yet.** The safety and recovery engine passes 115 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. In real Lightroom, TonePilot has made 15 Develop writes (12 RAW, 3 HEIC), all verified by read-back, including white-balance corrections on RAW. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** See the [changelog](CHANGELOG.md). Time savings are unmeasured. See [what has actually been measured](docs/EVIDENCE.md).
 
 <table>
 <tr>
@@ -53,7 +53,7 @@ TonePilot sends 640-pixel Lightroom previews and the photo's current Develop val
 
 ## Try the developer preview
 
-Test photos in a **backed-up, disposable catalog** only. Requirements: macOS 14+, Apple Silicon, Lightroom Classic, the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) 0.24.1, Node.js 18+, a signed-in Codex CLI, and the Xcode Command Line Tools to build.
+Test photos in a **backed-up, disposable catalog** only. Requirements: macOS 14+, Apple Silicon, Lightroom Classic, the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) 0.24.1, a signed-in Codex CLI, and the Xcode Command Line Tools and Node.js 18+ to build. The app bundles its own Node.js runtime.
 
 ```bash
 git clone https://github.com/manynames3/TonePilot.git

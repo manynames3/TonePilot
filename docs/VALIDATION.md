@@ -4,9 +4,9 @@ TonePilot moves forward only when a gate passes with real evidence. Status as of
 
 | Gate | What it proves | Status |
 |---|---|---|
-| G0 | Safety logic under failure, simulated | **Passed** — 78 automated tests, mutation-checked |
+| G0 | Safety logic under failure, simulated | **Passed** — 123 automated tests, mutation-checked |
 | G1 | Real writes, verification and restore on a disposable catalog | **Not run** — needs the photographer's go-ahead and a sandbox catalog |
-| G2 | Real read-only analysis on representative RAW galleries | **Partial** — 5 HEIC photos, one scene; no RAW yet |
+| G2 | Real read-only analysis on representative RAW galleries | **Partial** — 5 HEIC photos, one scene; a few single RAW photos; no RAW gallery yet |
 | G3 | Photographic quality, blind | **Not run** — needs ≥ 100 held-out photos and independent raters |
 | G4 | Scale: 20 → 100 → 500 photos | **Not started** — 20-photo limit stays |
 | G5 | Distribution: Developer ID signing, notarization, dependency bundling | **Prepared** — scripts ready, no credentials used |
@@ -55,7 +55,7 @@ TONEPILOT_SIGN_IDENTITY="Developer ID Application: …" TONEPILOT_APP_PATH=dist/
 TONEPILOT_NOTARY_PROFILE=tonepilot-notary ./TonePilot/notarize.sh dist/TonePilot.app
 ```
 
-Remaining before a normal photographer can install it: bundle a Node runtime, replace the Codex CLI dependency with a direct model API or account flow, and a guided plug-in installer.
+Remaining before a normal photographer can install it (Node.js is now bundled): replace the Codex CLI dependency with a direct model API or account flow, and a guided plug-in installer.
 
 ## G6 — repeatability
 

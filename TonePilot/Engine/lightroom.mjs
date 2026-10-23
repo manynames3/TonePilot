@@ -1,6 +1,11 @@
-// Minimal MCP (JSON-RPC over stdio) client for the third-party Lightroom Classic bridge
-// (github.com/Automaat/lightroom-mcp). Only the engine may call its write tool.
+// Lightroom clients. TonePilot's own plug-in (tonepilot-bridge.mjs) is used when it is
+// running; otherwise the minimal MCP (JSON-RPC over stdio) client below talks to the
+// third-party Lightroom Classic bridge (github.com/Automaat/lightroom-mcp). Both expose
+// connect / tool / close / serverInfo / writableKeys / kind. Only the engine may write.
+import fs from 'node:fs';
 import {spawn} from 'node:child_process';
+import path from 'node:path';
+import {TonePilotBridge, bridgeFile} from './tonepilot-bridge.mjs';
 
 // The bridge version TonePilot was verified against. A floating `npx -y` would run
 // whatever npm serves today with write access to the catalog, so the server is either
@@ -26,14 +31,14 @@ export class LightroomMCP {
     Object.assign(this, defaultLaunch());
     this.timeout = timeout; this.writeTimeout = writeTimeout;
     this.sequence = 0; this.pending = new Map(); this.buffer = ''; this.proc = null;
-    this.closed = false; this.stderrTail = ''; this.serverInfo = null; this.writableKeys = null;
+    this.closed = false; this.stderrTail = ''; this.serverInfo = null; this.writableKeys = null; this.kind = 'mcp';
   }
 
   async connect() {
     if (this.proc) throw new Error('MCP client already connected');
     const home = process.env.HOME || '';
     const proc = spawn(this.command, this.args, {stdio: ['pipe', 'pipe', 'pipe'],
-      env: {...process.env, PATH: home + '/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}});
+      env: {...process.env, PATH: path.dirname(process.execPath) + ':' + home + '/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}});
     this.proc = proc;
     proc.stdout.on('data', chunk => this.onData(chunk));
     proc.stderr.on('data', chunk => { this.stderrTail = (this.stderrTail + String(chunk)).slice(-2000); });
@@ -118,6 +123,16 @@ export class LightroomMCP {
     for (const task of this.pending.values()) { clearTimeout(task.timer); task.reject(error); }
     this.pending.clear();
   }
+}
+
+// TonePilot's plug-in when its bridge file exists and it answers hello; otherwise the
+// MCP bridge, exactly as before.
+export async function connectLightroom() {
+  if (fs.existsSync(bridgeFile())) {
+    const own = new TonePilotBridge();
+    try { return await own.connect(); } catch { await own.close(); }
+  }
+  return new LightroomMCP().connect();
 }
 
 export function normalizeSelection(selection) {

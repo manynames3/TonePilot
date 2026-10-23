@@ -50,7 +50,7 @@ Audit of commit `c92a2b2` (v0.4.0), October 21–22, 2026. Findings are ranked b
 | D2 | All-or-nothing apply. | Per-photo approval (checkbox, Space), approve all/none. |
 | D3 | No way to see original → proposed → read-back → restored values. | Shown per setting with verification state. |
 | D4 | Setup errors surfaced as one generic alert. | Setup checklist (12 checks incl. a live bridge handshake), each with a concrete fix. |
-| E1 | Node.js, Codex CLI and the Lightroom plug-in must still be installed by hand. | **Open.** The bridge server is bundled; Node and Codex are not. |
+| E1 | Node.js, Codex CLI and the Lightroom plug-in must still be installed by hand. | **Open.** The bridge server and Node.js runtime are bundled; Codex and the plug-in are not. |
 | E2 | Not signed with Developer ID or notarized. | **Open.** Build and notarization scripts are ready; no credentials were used. |
 
 ## Commercial blockers that remain

@@ -2,13 +2,13 @@
 // TonePilot guarded engine. AI only assesses; this process alone sends Lightroom writes,
 // and only after a journal record makes the intent durable.
 //
-// Modes: doctor | inspect | analyze | apply | restore | reconcile | sessions | show | discard
+// Modes: doctor | inspect | analyze | apply | restore | reconcile | sessions | show | discard | select
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
-import {LightroomMCP, readSelection, requireSameSelection, SelectionGuard, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
+import {connectLightroom, readSelection, requireSameSelection, SelectionGuard, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
 import {Journal} from './journal.mjs';
 import {loadSession, deriveStatus, listSessionDirs, sessionView, sessionSummary, writeViews} from './session.mjs';
 import {acquireLock, readLock, updateLock} from './lock.mjs';
@@ -18,8 +18,9 @@ import {resolvePolicy} from './policy.mjs';
 import {loadLineage, originFor} from './lineage.mjs';
 import {groupScenes} from './scenes.mjs';
 import {decide} from './harmonize.mjs';
-import {buildPrompt, assessImage, pool} from './ai.mjs';
+import {buildPrompt, buildBatchPrompt, assessImage, assessBatch, BATCH_SIZE, pool} from './ai.mjs';
 import {runDoctor} from './doctor.mjs';
+import {previewBytes, savePreview} from './preview.mjs';
 import {ENGINE_VERSION} from './version.mjs';
 
 const argv = process.argv.slice(2);
@@ -34,6 +35,9 @@ const codexPath = process.env.TONEPILOT_CODEX || path.join(os.homedir(), '.local
 const SETTLE_MS = Number(process.env.TONEPILOT_SETTLE_MS ?? 60000);
 const PREVIEW_RETRY_MS = Number(process.env.TONEPILOT_PREVIEW_RETRY_MS ?? 1500);
 const AI_CONCURRENCY = Math.min(4, Math.max(1, Number(process.env.TONEPILOT_AI_CONCURRENCY) || 2));
+// Photos per model call. One by default: batched calls cost ~70% fewer tokens but have
+// not yet been shown to reach the same decisions on real multi-photo scenes (EVIDENCE.md).
+const AI_BATCH = Math.min(BATCH_SIZE, Math.max(1, Number(process.env.TONEPILOT_AI_BATCH) || 1));
 const PRESENT = new Set(['applied', 'apply-mismatch']);
 
 const emit = (type, fields = {}) => process.stdout.write(JSON.stringify({type, ...fields}) + '\n');
@@ -78,11 +82,6 @@ async function getDevelop(client, id) {
   if (String(m.id) !== String(id)) throw new Error('Lightroom photo-ID mismatch');
   return {values: developmentView(m), snapshot: m.developSettings, identity: identityOf(id, m), meta: m};
 }
-function previewBytes(preview) {
-  const raw = preview?.image?.data;
-  if (typeof raw !== 'string' || raw.length < 100) throw new Error('Lightroom preview is missing');
-  return Buffer.from(raw, 'base64');
-}
 const exifOf = m => ({cameraModel: m.cameraModel || null, cameraSerialNumber: m.cameraSerialNumber || null,
   lens: m.lens || null, isoSpeedRating: m.isoSpeedRating || null, aperture: m.aperture || null,
   shutterSpeed: m.shutterSpeed || null, flash: m.flash || null, focalLength: m.focalLength || null,
@@ -121,7 +120,7 @@ async function doAnalyze(client) {
   const id = 'session-' + new Date().toISOString().replaceAll(/[:.]/g, '-') + '-' + randomUUID().slice(0, 6);
   const dir = path.join(runs, id);
   const journal = Journal.create(dir, 'session-created', {id, config: {look, strength, enabled, ids}, policy,
-    engine: {version: ENGINE_VERSION, bridge: client.serverInfo?.version || null},
+    engine: {version: ENGINE_VERSION, bridge: client.serverInfo?.version || null, bridgeKind: client.kind},
     photos: selected.map(p => ({id: p.id, filename: p.filename}))});
   updateLock(runs, {session: id});
   emit('session', {id, dir});
@@ -149,7 +148,7 @@ async function runAnalysis(client, journal, dir) {
     }
     if (!jpeg) throw new Error('Lightroom could not render a preview (' + String(lastError?.message || '').replace(/^.*Preview failed: /, '') + ')');
     const file = path.join(tmp, id + '.jpg');
-    fs.writeFileSync(file, jpeg, {mode: 0o600});
+    jpeg = savePreview(jpeg, file);
     previews.set(id, file);
     return jpeg;
   };
@@ -199,24 +198,51 @@ async function runAnalysis(client, journal, dir) {
       s = reload(dir);
     }
 
-    // 4. Model assessment, bounded parallelism, one private temp folder per call.
-    // Photos whose earlier attempt failed are retried when an analysis is resumed.
+    // 4. Model assessment: chunks of up to AI_BATCH photos from one lighting scene per call,
+    // bounded parallelism, one private temp folder per call. A chunk whose answer can't be
+    // matched to its photos is assessed again one photo per call. Photos whose earlier
+    // attempt failed are retried when an analysis is resumed.
     const todo = supported().filter(p => !p.ai);
     let done = supported().length - todo.length;
-    await pool(todo, AI_CONCURRENCY, async p => {
-      if (stopRequested) return;
-      const scene = s.scenes.find(sc => sc.photos.includes(p.id)) || {id: 'S?', photos: [p.id], reference: p.id};
-      try {
-        const jpeg = await fetchPreview(p.id);
-        const prompt = buildPrompt({photo: p, scene, policy: s.policy, enabled: s.config.enabled});
-        const r = await assessImage({jpeg, prompt, codex: codexPath,
-          onSpawn: c => { children.add(c); c.on('exit', () => children.delete(c)); }});
-        journal.append('photo-assessed', {photo: p.id, ai: r.assessment, stats: r.stats});
-      } catch (e) {
-        if (stopRequested) return;
-        journal.append('photo-assessed', {photo: p.id, error: String(e.message).slice(0, 200)});
-      }
+    const sceneOf = p => s.scenes.find(sc => sc.photos.includes(p.id)) || {id: 'S?', photos: [p.id], reference: p.id};
+    const chunks = [];
+    for (const p of todo) {
+      const last = chunks.at(-1);
+      if (last && last.length < AI_BATCH && sceneOf(last[0]) === sceneOf(p)) last.push(p); else chunks.push([p]);
+    }
+    const onSpawn = c => { children.add(c); c.on('exit', () => children.delete(c)); };
+    const record = (p, r) => {
+      journal.append('photo-assessed', r.error ? {photo: p.id, error: r.error} : {photo: p.id, ai: r.assessment, stats: r.stats});
       emit('progress', {step: 'assess', phase: 'Assessing light, skin and exposure', index: ++done, total: supported().length, filename: p.filename});
+    };
+    const assessOne = async p => {
+      try {
+        const prompt = buildPrompt({photo: p, scene: sceneOf(p), policy: s.policy, enabled: s.config.enabled});
+        return await assessImage({jpeg: await fetchPreview(p.id), prompt, codex: codexPath, onSpawn});
+      } catch (e) { return {error: String(e.message).slice(0, 200)}; }
+    };
+    await pool(chunks, AI_CONCURRENCY, async chunk => {
+      if (stopRequested) return;
+      const ready = [], jpegs = [];
+      for (const p of chunk) {
+        try { jpegs.push(await fetchPreview(p.id)); ready.push(p); }
+        catch (e) { record(p, {error: String(e.message).slice(0, 200)}); }
+      }
+      if (stopRequested) return;   // Stop may have arrived while previews were fetched
+      if (ready.length > 1) {
+        try {
+          const prompt = buildBatchPrompt({photos: ready, scene: sceneOf(ready[0]), policy: s.policy, enabled: s.config.enabled});
+          const results = await assessBatch({jpegs, prompt, codex: codexPath, onSpawn});
+          ready.forEach((p, i) => record(p, results[i]));
+          return;
+        } catch { /* fall back to one call per photo below */ }
+      }
+      for (const p of ready) {
+        if (stopRequested) return;
+        const r = await assessOne(p);
+        if (r.error && stopRequested) return;
+        record(p, r);
+      }
     });
     checkStop();
     s = reload(dir);
@@ -274,10 +300,8 @@ async function postCheck(client, journal, p, id) {
   try {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tonepilot-check-'));
     try {
-      const jpeg = previewBytes(await client.tool('get_photo_preview', {photo_id: id, size: 640}));
-      previewHash = hash(jpeg);
       const file = path.join(dir, 'after.jpg');
-      fs.writeFileSync(file, jpeg, {mode: 0o600});
+      previewHash = hash(savePreview(previewBytes(await client.tool('get_photo_preview', {photo_id: id, size: 640})), file));
       metrics = runAnalyzer(file, null);
     } finally { fs.rmSync(dir, {recursive: true, force: true}); }
     if (previewHash === p.previewHash) issues.push('Lightroom\'s preview has not updated yet; check the photo visually.');
@@ -292,6 +316,22 @@ async function postCheck(client, journal, p, id) {
     }
   } catch (e) { issues.push('After-edit preview unavailable: ' + e.message); }
   journal.append('post-check', {photo: id, metrics, issues, previewHash});
+}
+
+// Best effort: a named Lightroom snapshot before TonePilot first writes a photo in this
+// session. It changes no Develop value and never blocks the write, but it is a catalog
+// write, so it is journaled first like every other; the result is journaled with the photo.
+// Repeating it after a crash only refreshes the same-named snapshot.
+async function snapshotBefore(client, journal, s, id) {
+  const name = 'TonePilot before ' + s.id.slice(-6);
+  journal.append('snapshot-intent', {photo: id, name});
+  let r;
+  try { r = await client.tool('create_snapshot', {photo_id: id, name}); }
+  catch (e) {
+    if (e.kind === 'closed') throw e;   // stop before the Develop write
+    r = {created: false, error: e.message};
+  }
+  journal.append('photo-snapshot', {photo: id, name, supported: r.supported !== false, created: !!r.created, error: r.error || null});
 }
 
 async function doApply(client) {
@@ -334,6 +374,7 @@ async function doApply(client) {
         let intended;
         try { intended = withWhiteBalanceMode(validateSettings({origin: p.origin, baseline: cur.values, proposed: p.changes, enabled: s.config.enabled, caps: s.policy.caps}), cur.values); }
         catch (e) { journal.append('photo-stale', {photo: id, reason: 'Blocked by safety limits: ' + e.message}); continue; }
+        if (client.kind === 'tonepilot' && !p.lrSnapshot) await snapshotBefore(client, journal, s, id);
         journal.append('write-intent', {photo: id, preValues: cur.values, preSnapshot: cur.snapshot, intended});
         const r = await performWrite(client, id, cur, intended);
         if (r.unresolved) {
@@ -363,7 +404,9 @@ async function doApply(client) {
 
 async function performRestore(client, id, cur, plan) {
   let error = null;
-  try { await client.tool('set_develop_settings', {photo_id: id, settings: plan.target}); } catch (e) { error = e; }
+  // TonePilot's plug-in names the History step; the MCP bridge takes no name.
+  const history = client.kind === 'tonepilot' ? {history: 'TonePilot restore'} : {};
+  try { await client.tool('set_develop_settings', {photo_id: id, settings: plan.target, ...history}); } catch (e) { error = e; }
   if (error?.kind === 'closed') return {unresolved: true, error};
   const deadline = Date.now() + (error?.kind === 'timeout' ? Math.min(SETTLE_MS, 20000) : 0);
   for (;;) {
@@ -527,16 +570,25 @@ function doDiscard() {
 async function doInspect(client) {
   const sel = await readSelection(client, MAX_JOB_PHOTOS);
   emit('complete', {state: 'read-only', count: sel.count, limit: MAX_JOB_PHOTOS, truncated: sel.truncated,
-    bridge: client.serverInfo?.version || null, testedBridge: TESTED_BRIDGE_VERSION,
+    bridge: client.serverInfo?.version || null, bridgeKind: client.kind, testedBridge: TESTED_BRIDGE_VERSION,
     photos: sel.photos.map(p => ({id: p.id, filename: p.filename, captureTime: p.captureTime,
       format: (path.extname(p.filename).slice(1) || '').toUpperCase()}))});
+}
+
+// "Show in Lightroom": selects photos; never touches Develop settings. Refused while an
+// engine is working, since a changed selection would stop an apply.
+async function doSelect(client) {
+  const ids = validateIDs(JSON.parse(opt('ids', '[]')));
+  if (client.kind !== 'tonepilot') throw new Error('Showing photos in Lightroom needs the TonePilot Lightroom plug-in');
+  const r = await client.tool('select_photos', {photo_ids: ids});
+  emit('complete', {state: 'read-only', requested: r.requested ?? 0, selected: r.selected ?? 0, missing: r.missing || []});
 }
 
 // ---- Entry ----
 
 const MUTATING = new Set(['analyze', 'apply', 'restore', 'reconcile', 'discard']);
 async function main() {
-  if (!['doctor', 'inspect', 'analyze', 'apply', 'restore', 'reconcile', 'sessions', 'show', 'discard'].includes(mode)) throw new Error('Unknown mode');
+  if (!['doctor', 'inspect', 'analyze', 'apply', 'restore', 'reconcile', 'sessions', 'show', 'discard', 'select'].includes(mode)) throw new Error('Unknown mode');
   if (mode === 'sessions') return doSessions();
   if (mode === 'show') return doShow();
   if (mode === 'doctor') return emit('complete', {state: 'read-only', ...(await runDoctor({live: flag('live')}))});
@@ -545,14 +597,16 @@ async function main() {
     acquireLock(runs, {mode, session});
   }
   if (mode === 'discard') return doDiscard();
-  const client = await new LightroomMCP().connect();
-  if (client.serverInfo?.version && client.serverInfo.version !== TESTED_BRIDGE_VERSION)
+  if (mode === 'select' && readLock(runs)) throw new Error('TonePilot is still working in Lightroom; try again when it finishes.');
+  const client = await connectLightroom();
+  if (client.kind === 'mcp' && client.serverInfo?.version && client.serverInfo.version !== TESTED_BRIDGE_VERSION)
     emit('warning', {message: 'Lightroom bridge ' + client.serverInfo.version + ' has not been verified with TonePilot (tested ' + TESTED_BRIDGE_VERSION + ').'});
   try {
     if (mode === 'inspect') await doInspect(client);
     else if (mode === 'analyze') await doAnalyze(client);
     else if (mode === 'apply') await doApply(client);
     else if (mode === 'restore') await doRestore(client);
+    else if (mode === 'select') await doSelect(client);
     else await doReconcile(client);
   } finally { await client.close(); }
 }
