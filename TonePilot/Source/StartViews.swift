@@ -75,7 +75,7 @@ private struct AIServiceSection: View {
             Text("Only small previews leave this Mac. The service suggests; TonePilot checks and makes every edit.")
                 .font(Theme.body).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
-                ForEach(AIProvider.allCases) { p in
+                ForEach(AIProvider.choices) { p in
                     ProviderTile(provider: p, selected: ai.provider == p) { ai.provider = p; ai.newKey = "" }
                 }
             }

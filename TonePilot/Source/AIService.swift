@@ -4,15 +4,18 @@ import Security
 // The AI service that assesses previews: the Codex CLI on the photographer's ChatGPT plan
 // (default), Claude on Amazon Bedrock, or Claude through the Anthropic API. Choices live in
 // UserDefaults; API keys only in the macOS Keychain, read fresh for each engine run.
+// TonePilot Cloud is set only through the launch environment until it is deployed.
 enum AIProvider: String, CaseIterable, Identifiable {
-    case codex, bedrock, anthropic
+    case codex, bedrock, anthropic, cloud
+    static let choices: [AIProvider] = [.codex, .bedrock, .anthropic]   // offered in Setup
     var id: String { rawValue }
-    var isClaude: Bool { self != .codex }
+    var isClaude: Bool { self == .bedrock || self == .anthropic }
     var name: String {
         switch self {
         case .codex: return "ChatGPT subscription"
         case .bedrock: return "Amazon Bedrock"
         case .anthropic: return "Anthropic API"
+        case .cloud: return "TonePilot Cloud"
         }
     }
     var tagline: String {
@@ -20,6 +23,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
         case .codex: return "NO PER-PHOTO COST"
         case .bedrock: return "YOUR AWS ACCOUNT"
         case .anthropic: return "PAY AS YOU GO"
+        case .cloud: return "INCLUDED WITH YOUR LICENSE"
         }
     }
     var detail: String {
@@ -27,6 +31,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
         case .codex: return "Uses your ChatGPT plan through the Codex CLI."
         case .bedrock: return "Claude in your AWS account, which pays per photo."
         case .anthropic: return "Claude with your API key, billed per photo."
+        case .cloud: return "Claude through TonePilot's service."
         }
     }
     // Where previews go, for the line under "Analyze".
@@ -35,11 +40,12 @@ enum AIProvider: String, CaseIterable, Identifiable {
         case .codex: return "your ChatGPT plan (Codex)"
         case .bedrock: return "Claude on Amazon Bedrock"
         case .anthropic: return "Claude through the Anthropic API"
+        case .cloud: return "TonePilot Cloud (Claude on Amazon Bedrock)"
         }
     }
     var keyAccount: String? {
         switch self {
-        case .codex: return nil
+        case .codex, .cloud: return nil
         case .bedrock: return "aws-bearer-token-bedrock"
         case .anthropic: return "anthropic-api-key"
         }
@@ -112,8 +118,9 @@ final class AIServiceSettings: ObservableObject {
     func load() {
         active = Self.savedProvider
         provider = active; model = Self.savedModel; region = Self.savedRegion; profile = Self.savedProfile; newKey = ""
+        // Hints are kept beside the settings, so showing Setup never reads the Keychain.
         keyHints = Dictionary(uniqueKeysWithValues: AIProvider.allCases.compactMap { p in
-            p.keyAccount.flatMap { account in Keychain.read(account).map { (account, "••••••••" + String($0.suffix(4))) } }
+            p.keyAccount.flatMap { account in Self.defaults.string(forKey: "keyHint." + account).map { (account, "••••••••" + $0) } }
         })
     }
 
@@ -135,13 +142,17 @@ final class AIServiceSettings: ObservableObject {
         d.set(clean(profile), forKey: "awsProfile")
         let key = clean(newKey)
         saveFailed = false
-        if !key.isEmpty, let account = provider.keyAccount { saveFailed = !Keychain.save(account, key) }
+        if !key.isEmpty, let account = provider.keyAccount {
+            saveFailed = !Keychain.save(account, key)
+            if !saveFailed { d.set(String(key.suffix(4)), forKey: "keyHint." + account) }
+        }
         load()
     }
 
     func removeKey() {
         guard let account = provider.keyAccount else { return }
         Keychain.delete(account)
+        Self.defaults.removeObject(forKey: "keyHint." + account)
         load()
     }
 
@@ -153,13 +164,13 @@ final class AIServiceSettings: ObservableObject {
         env["TONEPILOT_AI_PROVIDER"] = provider.rawValue
         guard provider.isClaude else { return }
         env["TONEPILOT_AI_MODEL"] = (AIModel(rawValue: d.string(forKey: "aiModel") ?? "") ?? .opus).modelID(provider)
+        let key = provider.keyAccount.flatMap { Keychain.read($0) }
         if provider == .bedrock {
             env["TONEPILOT_AWS_REGION"] = d.string(forKey: "awsRegion") ?? "us-east-1"
+            // A saved Bedrock API key wins, as Setup says; the SDK would otherwise prefer the profile.
             let profile = d.string(forKey: "awsProfile") ?? ""
-            env["TONEPILOT_AWS_PROFILE"] = profile.isEmpty ? nil : profile
+            env["TONEPILOT_AWS_PROFILE"] = profile.isEmpty || key != nil ? nil : profile
         }
-        if let account = provider.keyAccount, let key = Keychain.read(account) {
-            env[provider == .bedrock ? "AWS_BEARER_TOKEN_BEDROCK" : "ANTHROPIC_API_KEY"] = key
-        }
+        if let key { env[provider == .bedrock ? "AWS_BEARER_TOKEN_BEDROCK" : "ANTHROPIC_API_KEY"] = key }
     }
 }
