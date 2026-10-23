@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 // Fake Lightroom MCP bridge (JSON-RPC over stdio) around the shared fake Lightroom in
 // mock-core.mjs. The engine starts one per run, as it does the real bridge.
+import fs from 'node:fs';
 import {callTool, FIELDS} from './mock-core.mjs';
+
+// Records any AI or AWS secret this third-party process could read (it must see none).
+const SECRETS = ['ANTHROPIC_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'TONEPILOT_LICENSE'];
+const seen = SECRETS.filter(k => process.env[k]);
+if (seen.length) fs.appendFileSync(process.env.TONEPILOT_MOCK_STATE + '.bridge-secrets', seen.join(',') + '\n');
 
 const out = obj => process.stdout.write(JSON.stringify(obj) + '\n');
 const respond = (id, result) => out({jsonrpc: '2.0', id, result});

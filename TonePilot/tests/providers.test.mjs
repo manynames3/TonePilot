@@ -159,3 +159,15 @@ test('compare-providers runs each provider read-only and reports agreement, repe
     assert.equal(x.get().writes.length, 0, 'read-only');
   } finally { x.cleanup(); }
 });
+
+test('the third-party Lightroom bridge never sees an AI or AWS secret', async () => {
+  const {existsSync, readFileSync} = await import('node:fs');
+  const x = setup({provider: 'anthropic', photos: THREE()});
+  try {
+    const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)],
+      {AWS_BEARER_TOKEN_BEDROCK: 'bedrock-test-key', AWS_SECRET_ACCESS_KEY: 'aws-test-secret', TONEPILOT_LICENSE: 'tp1.test'});
+    assert.equal(r.status, 0, JSON.stringify(r.error));
+    const leaked = x.state + '.bridge-secrets';
+    assert.ok(!existsSync(leaked), 'bridge saw: ' + (existsSync(leaked) ? readFileSync(leaked, 'utf8') : ''));
+  } finally { x.cleanup(); }
+});

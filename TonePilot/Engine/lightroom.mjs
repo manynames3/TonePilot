@@ -26,6 +26,10 @@ function defaultLaunch() {
   return {command: process.env.TONEPILOT_NPX || home + '/.local/bin/npx', args: ['-y', BRIDGE_PACKAGE]};
 }
 
+// The third-party bridge needs no AI or AWS credentials, so it never gets them.
+const SECRETS = ['ANTHROPIC_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'TONEPILOT_LICENSE'];
+const withoutSecrets = env => Object.fromEntries(Object.entries(env).filter(([k]) => !SECRETS.includes(k)));
+
 export class LightroomMCP {
   constructor({timeout = 30000, writeTimeout = Number(process.env.TONEPILOT_WRITE_TIMEOUT_MS) || 40000} = {}) {
     Object.assign(this, defaultLaunch());
@@ -38,7 +42,7 @@ export class LightroomMCP {
     if (this.proc) throw new Error('MCP client already connected');
     const home = process.env.HOME || '';
     const proc = spawn(this.command, this.args, {stdio: ['pipe', 'pipe', 'pipe'],
-      env: {...process.env, PATH: path.dirname(process.execPath) + ':' + home + '/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}});
+      env: {...withoutSecrets(process.env), PATH: path.dirname(process.execPath) + ':' + home + '/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}});
     this.proc = proc;
     proc.stdout.on('data', chunk => this.onData(chunk));
     proc.stderr.on('data', chunk => { this.stderrTail = (this.stderrTail + String(chunk)).slice(-2000); });
