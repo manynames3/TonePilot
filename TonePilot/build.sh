@@ -61,8 +61,8 @@ PLIST
 
 # Swift 5 language mode; no SwiftUI macros, so the Command Line Tools are enough.
 /usr/bin/swiftc -parse-as-library -swift-version 5 -target "$TARGET" -O \
-    -framework SwiftUI -framework AppKit \
-    "$ROOT"/Source/Models.swift "$ROOT"/Source/Engine.swift "$ROOT"/Source/AppModel.swift \
+    -framework SwiftUI -framework AppKit -framework Security \
+    "$ROOT"/Source/Models.swift "$ROOT"/Source/Engine.swift "$ROOT"/Source/AIService.swift "$ROOT"/Source/AppModel.swift \
     "$ROOT"/Source/Components.swift "$ROOT"/Source/StartViews.swift "$ROOT"/Source/SessionViews.swift \
     "$ROOT"/Source/TonePilotApp.swift "$ROOT"/Source/Snapshot.swift \
     -o "$CONTENTS/MacOS/TonePilot"
@@ -82,6 +82,12 @@ fi
 
 # Every engine module ships; a fixed list once left one out (CI's bundled-engine check caught it).
 cp "$ROOT"/Engine/*.mjs "$RESOURCES/TonePilotEngine/"
+# The Claude SDKs (Amazon Bedrock / Anthropic API providers), exactly as locked; install
+# scripts never run, and pure JavaScript only.
+cp "$ROOT/Engine/package.json" "$ROOT/Engine/package-lock.json" "$RESOURCES/TonePilotEngine/"
+(cd "$RESOURCES/TonePilotEngine" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error) \
+    || { echo "Installing the engine's pinned dependencies failed" >&2; exit 1; }
+if find "$RESOURCES/TonePilotEngine" -name "*.node" | grep -q .; then echo "Unexpected native module in the engine" >&2; exit 1; fi
 # TonePilot's own Lightroom plug-in, for the app to install later. Nothing is installed here.
 cp -R "$ROOT/LightroomPlugin/TonePilot.lrplugin" "$RESOURCES/"
 

@@ -29,6 +29,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      # The pinned Claude SDKs from the committed lockfile; install scripts never run.
+      - name: Install engine dependencies
+        working-directory: TonePilot/Engine
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run tests
         run: node --test TonePilot/tests/*.test.mjs
 
@@ -57,5 +61,6 @@ jobs:
         run: |
           if command -v node; then echo "A system Node is on PATH" >&2; exit 1; fi
           "$RUNNER_TEMP/TonePilot.app/Contents/Helpers/node" "$RUNNER_TEMP/TonePilot.app/Contents/Resources/TonePilotEngine/engine.mjs" --mode sessions
+          "$RUNNER_TEMP/TonePilot.app/Contents/Helpers/node" --input-type=module -e "await import('$RUNNER_TEMP/TonePilot.app/Contents/Resources/TonePilotEngine/claude.mjs')"
       - name: Bundled Lightroom plug-in present
         run: test -f "$RUNNER_TEMP/TonePilot.app/Contents/Resources/TonePilot.lrplugin/Info.lua"

@@ -4,6 +4,8 @@
 // here reaches AWS or Anthropic.
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {writeFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {setup, rawPhoto} from './helpers.mjs';
 import {outputSchema} from '../Engine/claude.mjs';
 import {ASSESSMENT_SCHEMA, batchSchema} from '../Engine/ai.mjs';
@@ -67,6 +69,63 @@ test('the schema sent to Claude drops only the constraints structured outputs re
     const kept = s => JSON.stringify(s).match(/"(enum|required|additionalProperties)"/g).length;
     assert.equal(kept(outputSchema(schema)), kept(schema), 'enums, required fields and closed objects are kept');
   }
+});
+
+// No AWS settings from the machine running the tests: credentials only from what each case sets.
+const noAWS = x => ({AWS_SHARED_CREDENTIALS_FILE: join(x.temp, 'aws-credentials'), AWS_CONFIG_FILE: join(x.temp, 'aws-config'),
+  AWS_ACCESS_KEY_ID: '', AWS_SECRET_ACCESS_KEY: '', AWS_PROFILE: '', AWS_REGION: '', AWS_BEARER_TOKEN_BEDROCK: '', TONEPILOT_AWS_PROFILE: ''});
+const doctor = (x, env, live = true) => {
+  const r = x.run(['--mode', 'doctor', ...(live ? ['--live'] : [])], {...noAWS(x), ...env});
+  assert.equal(r.status, 0, r.stderr);
+  return {checks: Object.fromEntries(r.complete.checks.map(c => [c.id, c])), out: JSON.stringify(r.events)};
+};
+
+test('doctor checks only the selected AI service; the live check is one tiny call and no secret is printed', () => {
+  const codex = setup();
+  try {
+    const {checks} = doctor(codex, {});
+    assert.ok(checks.codex && !checks['ai-credentials'] && !checks['ai-live'], 'Codex keeps its own checks');
+  } finally { codex.cleanup(); }
+
+  const x = setup({provider: 'bedrock'});
+  try {
+    let {checks} = doctor(x, {});
+    assert.equal(checks['ai-credentials'].ok, false);
+    assert.match(checks['ai-credentials'].fix, /Bedrock API key/);
+    assert.ok(!checks['ai-live'] && !checks.codex && !checks['codex-auth'], 'no live call without credentials; Codex is not required');
+    assert.equal(x.claudeCalls().length, 0);
+
+    const token = 'bedrock-secret-token-9731';
+    const r = doctor(x, {AWS_BEARER_TOKEN_BEDROCK: token, TONEPILOT_AWS_REGION: 'eu-central-1'});
+    checks = r.checks;
+    assert.deepEqual([checks['ai-credentials'].detail, checks['ai-region'].detail], ['Bedrock API key', 'eu-central-1']);
+    assert.equal(checks['ai-live'].ok, true);
+    assert.match(checks['ai-live'].detail, /^anthropic\.claude-opus-5-5 answered in \d+ ms$/);
+    assert.ok(['ai-credentials', 'ai-region', 'ai-live'].every(id => checks[id].severity === 'required'));
+    assert.doesNotMatch(r.out, /9731/);
+    assert.deepEqual(x.claudeCalls(), [{ping: true, model: 'anthropic.claude-opus-5-5', maxTokens: 16, apiKey: null}]);
+
+    writeFileSync(join(x.temp, 'aws-config'), '[default]\nregion = us-east-1\n[profile studio]\nsso_session = x\n');
+    assert.equal(doctor(x, {TONEPILOT_AWS_PROFILE: 'studio'}, false).checks['ai-credentials'].detail, 'AWS profile “studio” (~/.aws)');
+    assert.equal(doctor(x, {}, false).checks['ai-credentials'].detail, 'AWS profile “default” (~/.aws)');
+    assert.equal(doctor(x, {TONEPILOT_AWS_PROFILE: 'missing', AWS_BEARER_TOKEN_BEDROCK: token}, false).checks['ai-credentials'].ok, false,
+      'a named profile wins over the key, as in the SDK');
+    assert.equal(doctor(x, {AWS_BEARER_TOKEN_BEDROCK: token, TONEPILOT_AWS_REGION: 'mars'}, false).checks['ai-region'].ok, false);
+
+    const down = doctor(x, {AWS_BEARER_TOKEN_BEDROCK: token, TONEPILOT_AI_BASE_URL: 'http://127.0.0.1:9'}).checks['ai-live'];
+    assert.equal(down.ok, false);
+    assert.ok(down.fix);
+  } finally { x.cleanup(); }
+
+  const a = setup({provider: 'anthropic'});
+  try {
+    const r = doctor(a, {TONEPILOT_AI_MODEL: 'claude-haiku-5-5'});
+    assert.equal(r.checks['ai-credentials'].detail, 'Saved, ending in -key');
+    assert.doesNotMatch(r.out, /sk-ant-test-key/);
+    assert.equal(r.checks['ai-live'].ok, true);
+    assert.deepEqual(a.claudeCalls(), [{ping: true, model: 'claude-haiku-5-5', maxTokens: 16, apiKey: 'sk-ant-test-key'}]);
+    assert.equal(doctor(a, {ANTHROPIC_API_KEY: ''}).checks['ai-credentials'].ok, false);
+  } finally { a.cleanup(); }
 });
 
 test('an unknown provider is refused before any photo is assessed', () => {

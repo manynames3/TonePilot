@@ -57,7 +57,150 @@ struct SetupView: View {
                 Spacer()
             }
             .padding(.top, 22)
+            Rule().padding(.top, 32).padding(.bottom, 26)
+            AIServiceSection(ai: model.ai)
         }
+    }
+}
+
+// MARK: AI service
+
+private struct AIServiceSection: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject var ai: AIServiceSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionLabel(step: nil, title: "AI service", trailing: "Assesses your previews")
+            Text("Only small previews leave this Mac. The service suggests; TonePilot checks and makes every edit.")
+                .font(Theme.body).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                ForEach(AIProvider.allCases) { p in
+                    ProviderTile(provider: p, selected: ai.provider == p) { ai.provider = p; ai.newKey = "" }
+                }
+            }
+            .padding(.top, 4)
+            if ai.provider.isClaude { claudeSettings }
+            if ai.saveFailed {
+                Callout(tone: .danger, systemImage: "key.slash", title: "The key wasn't saved",
+                        message: "The macOS Keychain refused it. Try again, or check Keychain Access.")
+            }
+            HStack(spacing: 14) {
+                Button("Save and check again") { ai.save(); Task { await model.checkSetup() } }
+                    .buttonStyle(SecondaryButtonStyle()).disabled(model.busy || !ai.dirty)
+                if ai.dirty { Button("Discard changes") { ai.load() }.buttonStyle(QuietButtonStyle()) }
+                Spacer()
+            }
+            .padding(.top, 4)
+        }
+        .disabled(model.busy)
+    }
+
+    private var claudeSettings: some View {
+        PaperCard(padding: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Model").font(Theme.secondaryStrong)
+                HStack(spacing: 8) {
+                    ForEach(AIModel.allCases) { m in ModelChip(model: m, selected: ai.model == m) { ai.model = m } }
+                }
+            }
+            if ai.provider == .bedrock {
+                HStack(alignment: .top, spacing: 12) {
+                    Field(label: "AWS region") { TextField("us-east-1", text: $ai.region) }
+                    Field(label: "AWS profile · optional") { TextField("default", text: $ai.profile) }
+                }
+                .padding(.top, 4)
+            }
+            keyField.padding(.top, ai.provider == .bedrock ? 0 : 4)
+            Label { Text(keyNote).fixedSize(horizontal: false, vertical: true) } icon: { Image(systemName: "lock") }
+                .font(Theme.secondary).foregroundStyle(Theme.muted).padding(.top, 2)
+        }
+        .padding(.top, 2)
+    }
+
+    private var keyField: some View {
+        let bedrock = ai.provider == .bedrock
+        return Field(label: bedrock ? "Bedrock API key · optional" : "API key",
+                     action: ai.keyHint == nil ? nil : ("Remove saved key", { ai.removeKey(); Task { await model.checkSetup() } })) {
+            SecureField(ai.keyHint.map { "Saved  \($0)" } ?? (bedrock ? "Paste a Bedrock API key" : "Paste your key (sk-ant-…)"), text: $ai.newKey)
+        }
+    }
+
+    private var keyNote: String {
+        ai.provider == .bedrock
+            ? "Without a key, TonePilot uses your AWS sign-in (aws configure or aws sso login). Keys stay in your Mac's Keychain."
+            : "Create a key at console.anthropic.com. It stays in your Mac's Keychain, never in a file."
+    }
+}
+
+private struct ProviderTile: View {
+    let provider: AIProvider; let selected: Bool; let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(provider.name).font(Theme.serif(17))
+                    Spacer(minLength: 6)
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 17, weight: .medium)).foregroundStyle(selected ? Theme.accent : Theme.neutral.opacity(0.45))
+                }
+                Text(provider.tagline).font(.system(size: 11.5, weight: .bold)).tracking(1.0).foregroundStyle(Theme.accent)
+                Text(provider.detail).font(Theme.secondary).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true).padding(.top, 2)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 13)
+            .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? Theme.accent : Theme.line, lineWidth: selected ? 2.2 : 0.8))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(provider.name). \(provider.detail)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+private struct ModelChip: View {
+    let model: AIModel; let selected: Bool; let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Text(model.name).font(.system(size: 14, weight: selected ? .bold : .medium))
+                if model == .opus {
+                    Text("DEFAULT").font(.system(size: 10.5, weight: .bold)).tracking(1.0)
+                        .foregroundStyle(selected ? Color.white.opacity(0.8) : Theme.muted)
+                }
+            }
+            .foregroundStyle(selected ? Color.white : Theme.ink)
+            .padding(.horizontal, 14).frame(height: 34)
+            .background(selected ? Theme.accent : Theme.sunken, in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Model \(model.name)")
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+// A labelled text input in the paper style.
+private struct Field<Input: View>: View {
+    let label: String
+    var action: (String, () -> Void)? = nil
+    @ViewBuilder var input: Input
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(label).font(Theme.secondaryStrong)
+                Spacer()
+                if let action { Button(action.0, action: action.1).buttonStyle(QuietButtonStyle()) }
+            }
+            input.textFieldStyle(.plain).font(Theme.value)
+                .padding(.horizontal, 12).frame(height: 36)
+                .background(Theme.paper, in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.line, lineWidth: 0.8))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -299,7 +442,7 @@ struct NewPassView: View {
             .keyboardShortcut(.return, modifiers: .command)
             HStack(spacing: 6) {
                 Image(systemName: "lock.shield")
-                Text("Analysis only reads Lightroom · 640-px previews go to your Codex AI account · measurements stay on this Mac")
+                Text("Analysis only reads Lightroom · 640-px previews go to \(model.ai.active.destination) · measurements stay on this Mac")
             }
             .font(Theme.secondary).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.85)
         }
