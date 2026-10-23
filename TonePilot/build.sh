@@ -18,7 +18,18 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 VERSION="0.6.0"
 BUILD_NUMBER="${TONEPILOT_BUILD_NUMBER:-5}"
 APP="${TONEPILOT_APP_PATH:-$HOME/Applications/TonePilot.app}"
-SIGN_ID="${TONEPILOT_SIGN_IDENTITY:--}"
+SIGN_ID="${TONEPILOT_SIGN_IDENTITY:-}"
+if [[ -z "$SIGN_ID" ]]; then
+    # A stable local identity (a free Apple Development certificate, or a self-signed one named
+    # "TonePilot Local") keeps macOS permission grants across rebuilds; an ad-hoc signature
+    # changes with every build, so macOS asks again. Picked by hash: no name lands in the repo.
+    SIGN_ID="$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+        | /usr/bin/grep -E '"(TonePilot Local|Apple Development: [^"]*)"' | /usr/bin/head -1 | /usr/bin/awk '{print $2}')"
+    SIGN_ID="${SIGN_ID:--}"
+fi
+# Only Developer ID builds are distributed, so only they need a secure timestamp.
+TIMESTAMP="--timestamp=none"
+[[ "${TONEPILOT_SIGN_IDENTITY:-}" == Developer\ ID* ]] && TIMESTAMP="--timestamp"
 BUNDLE_BRIDGE="${TONEPILOT_BUNDLE_BRIDGE:-1}"
 TARGET="arm64-apple-macos14.0"
 BUNDLE_NODE="${TONEPILOT_BUNDLE_NODE:-1}"
@@ -122,10 +133,10 @@ if [[ "$SIGN_ID" == "-" ]]; then
     /usr/bin/codesign --force --sign - "$OUT"
 else
     # V8 needs JIT under the hardened runtime; only the Node binary gets that entitlement.
-    [[ -f "$CONTENTS/Helpers/node" ]] && /usr/bin/codesign --force --options runtime --timestamp \
+    [[ -f "$CONTENTS/Helpers/node" ]] && /usr/bin/codesign --force --options runtime $TIMESTAMP \
         --entitlements "$ROOT/Node.entitlements" --sign "$SIGN_ID" "$CONTENTS/Helpers/node"
     for bin in "$CONTENTS/MacOS/TonePilotAnalyzer" "$OUT"; do
-        /usr/bin/codesign --force --options runtime --timestamp --entitlements "$ROOT/TonePilot.entitlements" --sign "$SIGN_ID" "$bin"
+        /usr/bin/codesign --force --options runtime $TIMESTAMP --entitlements "$ROOT/TonePilot.entitlements" --sign "$SIGN_ID" "$bin"
     done
 fi
 /usr/bin/codesign --verify --strict --verbose=1 "$OUT"
@@ -135,4 +146,6 @@ mkdir -p "$(dirname "$APP")"
 rm -rf "$APP"
 mv "$OUT" "$APP"
 echo "Built: $APP"
-if [[ "$SIGN_ID" == "-" ]]; then echo "Development build: ad-hoc signed, not notarized."; else echo "Signed with $SIGN_ID. Run TonePilot/notarize.sh before distributing."; fi
+if [[ "$SIGN_ID" == "-" ]]; then echo "Development build: ad-hoc signed (macOS will ask for permissions again after each build), not notarized."
+elif [[ "$TIMESTAMP" == "--timestamp" ]]; then echo "Signed with $SIGN_ID. Run TonePilot/notarize.sh before distributing."
+else echo "Signed with a stable local identity: macOS keeps your permission choices across builds. Not notarized; for this Mac only."; fi
