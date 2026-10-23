@@ -3,7 +3,8 @@
 // port written to TONEPILOT_MOCK_CLAUDE_PORT. Answers as mock-answers.mjs says (doctor's
 // text-only ping gets "OK") and logs
 // every request's essentials to <state>.claude, one JSON line each. Exits when its parent
-// closes stdin. Faults from the mock state: aiFail (photo ids → HTTP 400), claudeRefusal.
+// closes stdin. Faults from the mock state: aiFail (photo ids → HTTP 400), claudeRefusal,
+// claudeStatus (every assessment answered with that HTTP status), aiDelayMs.
 import fs from 'node:fs';
 import http from 'node:http';
 import {answerFor, photoIdOf} from './mock-answers.mjs';
@@ -37,6 +38,7 @@ const server = http.createServer((req, res) => {
       return reply(400, {type: 'error', error: {type: 'invalid_request_error', message: 'output_config.format.schema not accepted'}});
     const ids = images.map(b => photoIdOf(Buffer.from(b.source.data, 'base64')));
     const state = JSON.parse(fs.readFileSync(STATE, 'utf8'));
+    if (state.claudeStatus) return reply(state.claudeStatus, {type: 'error', error: {type: 'overloaded_error', message: 'busy'}});
     if (ids.some(id => (state.aiFail || []).includes(id)))
       return reply(400, {type: 'error', error: {type: 'invalid_request_error', message: 'model unavailable'}});
     const message = {id: 'msg_mock', type: 'message', role: 'assistant', model: request.model,

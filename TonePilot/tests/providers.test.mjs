@@ -160,14 +160,65 @@ test('compare-providers runs each provider read-only and reports agreement, repe
   } finally { x.cleanup(); }
 });
 
-test('the third-party Lightroom bridge never sees an AI or AWS secret', async () => {
+test('no helper process (bridge, Codex CLI, analyzer) ever sees an AI or AWS secret', async () => {
   const {existsSync, readFileSync} = await import('node:fs');
-  const x = setup({provider: 'anthropic', photos: THREE()});
+  const secrets = {AWS_BEARER_TOKEN_BEDROCK: 'bedrock-test-key', AWS_SECRET_ACCESS_KEY: 'aws-test-secret', TONEPILOT_LICENSE: 'tp1.test',
+    ANTHROPIC_API_KEY: 'sk-ant-test-key', ANTHROPIC_AUTH_TOKEN: 'oauth-test'};
+  for (const provider of ['anthropic', 'codex']) {
+    const x = setup({provider, photos: THREE()});
+    try {
+      assert.equal(x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)], secrets).status, 0);
+      x.run(['--mode', 'doctor'], {...secrets, TONEPILOT_AI_PROVIDER: 'codex'});
+      const leaked = x.state + '.child-secrets';
+      assert.ok(!existsSync(leaked), provider + ': ' + (existsSync(leaked) ? readFileSync(leaked, 'utf8') : ''));
+    } finally { x.cleanup(); }
+  }
+});
+
+test('a Claude call is made once: no hidden SDK retries stretch the time limit', () => {
+  const x = setup({provider: 'bedrock', photos: THREE()});
   try {
-    const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)],
-      {AWS_BEARER_TOKEN_BEDROCK: 'bedrock-test-key', AWS_SECRET_ACCESS_KEY: 'aws-test-secret', TONEPILOT_LICENSE: 'tp1.test'});
-    assert.equal(r.status, 0, JSON.stringify(r.error));
-    const leaked = x.state + '.bridge-secrets';
-    assert.ok(!existsSync(leaked), 'bridge saw: ' + (existsSync(leaked) ? readFileSync(leaked, 'utf8') : ''));
+    x.set(s => { s.claudeStatus = 529; });
+    const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)]);
+    assert.notEqual(r.status, 0);
+    assert.equal(x.claudeCalls().length, 3, 'one request per photo, not three');
+  } finally { x.cleanup(); }
+});
+
+test('Stop cancels a Claude request in flight instead of waiting for it', async () => {
+  const x = setup({provider: 'bedrock', photos: THREE()});
+  try {
+    x.set(s => { s.aiDelayMs = 60000; });
+    const child = x.start(['--mode', 'analyze', '--ids', JSON.stringify(IDS)]);
+    const exited = new Promise(resolve => child.on('exit', resolve));
+    for (let i = 0; i < 200 && !x.claudeCalls().length; i++) await new Promise(r => setTimeout(r, 50));
+    assert.ok(x.claudeCalls().length, 'a request is in flight');
+    const stoppedAt = Date.now();
+    child.kill('SIGTERM');
+    await exited;
+    assert.ok(Date.now() - stoppedAt < 5000, 'stopped in ' + (Date.now() - stoppedAt) + ' ms');
+  } finally { x.cleanup(); }
+});
+
+test('the test-only Messages API address is honoured only on this machine', async () => {
+  const {claudeClient} = await import('../Engine/claude.mjs');
+  assert.throws(() => claudeClient('anthropic', {ANTHROPIC_API_KEY: 'k', TONEPILOT_AI_BASE_URL: 'https://api.example.com'}), /only for local tests/);
+  assert.throws(() => claudeClient('bedrock', {TONEPILOT_AI_BASE_URL: 'http://10.0.0.5:8080'}), /only for local tests/);
+  assert.ok(claudeClient('bedrock', {TONEPILOT_AI_BASE_URL: 'http://127.0.0.1:9'}).client);
+});
+
+test('doctor checks TonePilot Cloud by its address and license, and calls no Claude API for it', () => {
+  const x = setup();
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const checks = env => x.run(['--mode', 'doctor', '--live'], {TONEPILOT_AI_PROVIDER: 'cloud', ANTHROPIC_API_KEY: 'sk-ant-should-not-be-used',
+      TONEPILOT_AI_BASE_URL: '', ...env}).complete.checks.filter(c => c.id.startsWith('ai') || c.id.startsWith('cloud'));
+    const ok = checks({TONEPILOT_CLOUD_URL: 'https://api.tonepilot.example', TONEPILOT_LICENSE: 'tp1.lic_1.' + (now + 86400) + '.sig'});
+    assert.ok(ok.length && ok.every(c => c.ok), JSON.stringify(ok));
+    assert.ok(!ok.some(c => /Anthropic/.test(c.title + c.detail)), 'no Anthropic key check for Cloud');
+    assert.ok(!JSON.stringify(ok).includes('sig'), 'the license is never printed');
+    const bad = checks({TONEPILOT_CLOUD_URL: 'http://api.tonepilot.example', TONEPILOT_LICENSE: 'tp1.lic_1.' + (now - 60) + '.sig'});
+    assert.deepEqual(bad.filter(c => !c.ok).map(c => c.id).sort(), ['cloud-license', 'cloud-url']);
+    assert.equal(x.claudeCalls().length, 0);
   } finally { x.cleanup(); }
 });

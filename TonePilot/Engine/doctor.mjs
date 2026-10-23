@@ -4,12 +4,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {childEnv} from './secrets.mjs';
 import {connectLightroom, readSelection, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
 import {bridgeFile} from './tonepilot-bridge.mjs';
 import {PROVIDERS} from './ai.mjs';
 
 const home = os.homedir();
-const run = (cmd, args, timeout = 8000) => spawnSync(cmd, args, {encoding: 'utf8', timeout});
+const run = (cmd, args, timeout = 8000) => spawnSync(cmd, args, {encoding: 'utf8', timeout, env: childEnv()});
 const PLUGIN = path.join(home, 'Library/Application Support/Adobe/Lightroom/Modules/LightroomMCP.lrplugin');
 
 function lightroomApp() {
@@ -89,6 +90,20 @@ async function aiChecks(env, live) {
     return out;
   }
   if (!PROVIDERS.includes(name)) return [check('ai-provider', false, 'AI service', 'Unknown service “' + name + '”', 'Choose an AI service in Setup.')];
+  // TonePilot Cloud holds the model credentials; here only its address and the license
+  // (whose expiry is readable without the signing secret) are checked. No model call.
+  if (name === 'cloud') {
+    let url = null;
+    try { url = new URL(env.TONEPILOT_CLOUD_URL || ''); } catch { /* not set or not a URL */ }
+    const local = url && url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    const urlOk = !!url && (url.protocol === 'https:' || local);
+    const [version, id, expires] = (env.TONEPILOT_LICENSE || '').split('.');
+    const days = Math.floor((Number(expires) * 1000 - Date.now()) / 86400000);
+    const licenseOk = version === 'tp1' && !!id && Number.isFinite(days) && days >= 0;
+    return [check('cloud-url', urlOk, 'TonePilot Cloud address', url ? url.host : 'Not set', urlOk ? null : 'TonePilot Cloud needs an https address.'),
+      check('cloud-license', licenseOk, 'TonePilot license', licenseOk ? 'Valid for ' + days + ' more days' : version === 'tp1' && id ? 'Expired' : 'Not set or not readable',
+        licenseOk ? null : 'Renew or re-enter your TonePilot license.')];
+  }
 
   const out = [];
   if (name === 'bedrock') {

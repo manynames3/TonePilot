@@ -41,7 +41,8 @@ const usage = {
     ExpressionAttributeValues: {':one': {N: '1'}, ':i': {N: String(inputTokens)}, ':o': {N: String(outputTokens)}}})
 };
 
-// An explicit environment: only the model and region reach the provider.
-const model = claudeProvider('bedrock', {TONEPILOT_AI_MODEL: ALLOWED_MODEL, AWS_REGION});
+// An explicit environment: only the model and region reach the provider. maxTokens bounds
+// what any one request can cost the owner (thinking counts toward it).
+const model = claudeProvider('bedrock', {TONEPILOT_AI_MODEL: ALLOWED_MODEL, AWS_REGION}, {maxTokens: 4000});
 
 export const handler = createHandler({getSecret, usage, model, dailyCap: Number(DAILY_PHOTO_CAP)});

@@ -3,6 +3,8 @@
 // Face brightness follows the photo's CURRENT exposure, so post-apply checks behave
 // like the real analyzer measuring Lightroom's re-rendered preview.
 import fs from 'node:fs';
+import {recordSecrets} from './mock-answers.mjs';
+recordSecrets('analyzer');
 const [file] = process.argv.slice(2);
 if (file === '--selftest') { console.log(JSON.stringify({passed: true, checks: []})); process.exit(0); }
 const id = fs.readFileSync(file, 'utf8').split(':')[1];

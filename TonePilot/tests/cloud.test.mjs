@@ -6,7 +6,7 @@ import {test} from 'node:test';
 import {createHandler, LIMITS} from '../Cloud/handler.mjs';
 import {signLicense, verifyLicense} from '../Cloud/license.mjs';
 import {cloudProvider} from '../Engine/cloud.mjs';
-import {ASSESSMENT_SCHEMA, batchSchema} from '../Engine/ai.mjs';
+import {ASSESSMENT_SCHEMA, batchSchema, normalizeAssessment} from '../Engine/ai.mjs';
 import {memoryUsage, serve, SERVER_MODEL, TEST_SECRET} from './mock-cloud.mjs';
 import {setup, rawPhoto} from './helpers.mjs';
 
@@ -16,12 +16,15 @@ const LICENSE = signLicense('lic-1', nowSec + 3600, TEST_SECRET);
 const jpeg = (bytes = 64) => Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF]), Buffer.alloc(bytes - 3, 7)]).toString('base64');
 const PROMPT = 'PROMPT-MARKER assess this photo';
 const ANSWER = {confidence: 0.9, reason: 'ANSWER-MARKER'};
+// What the server returns for ANSWER: the normalized assessment in the schema's shape.
+const CLEAN = (({proposed, ...a}) => ({...a, changes: []}))(normalizeAssessment(ANSWER));
 
 function rig({cap = 1000, run} = {}) {
   const usage = memoryUsage(), logs = [], calls = [];
   const model = {name: 'bedrock', model: SERVER_MODEL, async run(args) {
     calls.push(args);
-    return run ? run(args) : {raw: ANSWER, stats: {ms: 7, inputTokens: 4000, outputTokens: 150}};
+    return run ? run(args) : {raw: args.jpegs.length === 1 ? ANSWER : {photos: args.jpegs.map((_, i) => ({index: i + 1, ...ANSWER}))},
+      stats: {ms: 7, inputTokens: 4000, outputTokens: 150}};
   }};
   const handler = createHandler({getSecret: async () => TEST_SECRET, usage, model, dailyCap: cap, now: () => NOW, log: l => logs.push(l)});
   const call = async (body, token = LICENSE) => {
@@ -95,7 +98,7 @@ test('the server chooses the schema and the model whatever the client sends', as
   assert.equal(x.calls[0].schema, ASSESSMENT_SCHEMA);
   assert.deepEqual(x.calls[1].schema, batchSchema(3));
   assert.deepEqual(Object.keys(x.calls[1]).sort(), ['jpegs', 'prompt', 'schema', 'timeoutMs'], 'nothing else of the body is passed on');
-  assert.deepEqual(one.body, {raw: ANSWER, model: SERVER_MODEL, stats: {ms: 7, inputTokens: 4000, outputTokens: 150}});
+  assert.deepEqual(one.body, {raw: CLEAN, model: SERVER_MODEL, stats: {ms: 7, inputTokens: 4000, outputTokens: 150}});
 });
 
 test('zero retention: logs hold only licenseId, image count, tokens, ms and status; errors carry no details', async () => {
@@ -109,7 +112,9 @@ test('zero retention: logs hold only licenseId, image count, tokens, ms and stat
   assert.deepEqual(results.map(r => r.status), [200, 502, 429, 400, 401]);
   assert.deepEqual(results[1].body, {error: 'model-unavailable'});
   assert.equal(x.logs.length, 5);
-  for (const line of x.logs) assert.deepEqual(Object.keys(line), ['licenseId', 'images', 'inputTokens', 'outputTokens', 'ms', 'status']);
+  for (const line of x.logs) assert.deepEqual(Object.keys(line), ['licenseId', 'images', 'inputTokens', 'outputTokens', 'ms', 'status',
+    ...(line.status === 502 ? ['error'] : [])]);
+  assert.equal(x.logs[1].error, 'Error', 'a failed model call logs its kind, never its text');
   assert.deepEqual(x.logs[0], {licenseId: 'lic-1', images: 1, inputTokens: 4000, outputTokens: 150, ms: 0, status: 200});
   const logged = JSON.stringify(x.logs);
   for (const secret of ['PROMPT-MARKER', 'ANSWER-MARKER', 'INTERNAL-DETAIL', image.slice(4, 40), LICENSE.split('.')[3]])
@@ -132,7 +137,7 @@ test('the cloud provider maps server answers to clear errors and refuses a licen
   try {
     const p = provider(signLicense('lic-9', now + 600, TEST_SECRET));
     const r = await p.run(args);
-    assert.deepEqual(r.raw, ANSWER);
+    assert.deepEqual(r.raw, CLEAN);
     assert.equal(r.stats.inputTokens, 4000);
     assert.equal(p.model, SERVER_MODEL, 'the model is the one the server reports');
     await assert.rejects(provider(signLicense('lic-9', now - 5, TEST_SECRET)).run(args), /TonePilot license expired/);
@@ -171,4 +176,29 @@ test('the engine through TonePilot Cloud reaches the same decisions as Codex', (
     assert.notEqual(expired.status, 0);
     assert.match(expired.error.message, /TonePilot license expired/);
   } finally { codex.cleanup(); cloud.cleanup(); }
+});
+
+test('the server returns only a normalized assessment: no free text beyond the schema\'s short fields', async () => {
+  const essay = 'x'.repeat(5000);
+  const x = rig({run: () => ({raw: {...ANSWER, reason: essay, scene: essay, essay, skinTone: {verdict: 'correct', temperatureShift: 0, tintShift: 0, note: essay}},
+    stats: {ms: 7, inputTokens: 4000, outputTokens: 3000}})});
+  const r = await x.call(valid());
+  assert.equal(r.status, 200);
+  assert.equal(r.body.raw.essay, undefined);
+  assert.ok(r.body.raw.reason.length <= 300 && r.body.raw.scene.length <= 80 && r.body.raw.skinTone.note.length <= 160);
+  const batch = rig({run: () => ({raw: {photos: [{index: 2, ...ANSWER, reason: essay}, {index: 1, ...ANSWER}]}, stats: {}})});
+  const b = await batch.call(valid(2));
+  assert.deepEqual(b.body.raw.photos.map(p => [p.index, p.reason.length <= 300]), [[2, true], [1, true]]);
+  const short = rig({run: () => ({raw: {photos: [{index: 1, ...ANSWER}]}, stats: {}})});
+  assert.equal((await short.call(valid(2))).status, 502, 'a batch answer that does not match its images is not returned');
+});
+
+test('the Lambda package holds every Engine module the handler imports', async () => {
+  const {readFileSync} = await import('node:fs');
+  const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
+  const staged = [...read('../Cloud/stage.sh').matchAll(/\$here\/\.\.\/Engine\/(\w+\.mjs)/g)].map(m => m[1]);
+  const imports = f => [...read('../Engine/' + f).matchAll(/from '\.\/(\w+\.mjs)'/g)].map(m => m[1]);
+  const needed = new Set(['ai.mjs', 'claude.mjs']);
+  for (const f of needed) for (const dep of imports(f)) needed.add(dep);
+  for (const f of needed) assert.ok(staged.includes(f), 'stage.sh must copy Engine/' + f);
 });

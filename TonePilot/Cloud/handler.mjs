@@ -4,7 +4,7 @@
 // to TonePilot's assessment schema. Zero retention: prompts, images and answers are never
 // logged or stored; one log line per request holds only licenseId, image count, tokens, ms
 // and status. Dependencies are injected (lambda.mjs wires the AWS ones; tests use fakes).
-import {ASSESSMENT_SCHEMA, batchSchema, BATCH_SIZE} from '../Engine/ai.mjs';
+import {ASSESSMENT_SCHEMA, batchSchema, BATCH_SIZE, normalizeAssessment} from '../Engine/ai.mjs';
 import {verifyLicense} from './license.mjs';
 
 export const LIMITS = {promptChars: 24000, images: BATCH_SIZE, imageBytes: 2 * 1024 * 1024};
@@ -29,6 +29,21 @@ function parseRequest(event) {
     jpegs.push(jpeg);
   }
   return {prompt, jpegs};
+}
+
+// What the client gets back: the model's answer re-built from normalizeAssessment, so only
+// the schema's fields, with its short text limits, ever leave the server — the endpoint
+// can't be used to get free-form text out of the model. Throws when the answer doesn't fit.
+function cleanAnswer(raw, n) {
+  const one = r => {
+    const {proposed, ...a} = normalizeAssessment(r);
+    return {...a, changes: Object.entries(proposed).map(([setting, value]) => ({setting, value}))};
+  };
+  if (n === 1) return one(raw);
+  const photos = raw?.photos;
+  if (!Array.isArray(photos) || photos.length !== n || new Set(photos.map(p => p?.index)).size !== n
+    || photos.some(p => !Number.isInteger(p?.index) || p.index < 1 || p.index > n)) throw new Error('batch answer does not match its images');
+  return {photos: photos.map(p => ({index: p.index, ...one(p)}))};
 }
 
 // getSecret: async () → license-signing secret. usage: {reserve, record} (atomic per-license,
@@ -59,17 +74,19 @@ export function createHandler({getSecret, usage, model, dailyCap, timeoutMs = 25
       const key = {licenseId: license.licenseId, day: new Date(now()).toISOString().slice(0, 10)};
       if (!await usage.reserve({...key, photos: jpegs.length, cap: dailyCap})) return done(429, {error: 'daily-limit'});
 
-      let result;
+      let result, answer;
       try {
         result = await model.run({jpegs, prompt, schema: jpegs.length === 1 ? ASSESSMENT_SCHEMA : batchSchema(jpegs.length), timeoutMs});
-      } catch {
+        answer = cleanAnswer(result.raw, jpegs.length);
+      } catch (e) {
+        line.error = String(e?.status || e?.name || 'Error').slice(0, 40);   // the kind of failure, never its text
         return done(502, {error: 'model-unavailable'});
       }
       const {ms, inputTokens = null, outputTokens = null} = result.stats || {};
       Object.assign(line, {inputTokens, outputTokens});
       // Token accounting is best effort: it never costs the photographer an answer already paid for.
       await usage.record({...key, inputTokens: inputTokens || 0, outputTokens: outputTokens || 0}).catch(() => {});
-      return done(200, {raw: result.raw, model: model.model, stats: {ms, inputTokens, outputTokens}});
+      return done(200, {raw: answer, model: model.model, stats: {ms, inputTokens, outputTokens}});
     } catch {
       return done(500, {error: 'server-error'});
     }

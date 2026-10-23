@@ -6,6 +6,7 @@ import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {childEnv} from './secrets.mjs';
 
 export const ILLUMINANTS = ['daylight', 'open-shade', 'overcast', 'golden-hour', 'window', 'tungsten', 'fluorescent',
   'led', 'flash', 'mixed', 'night', 'unknown'];
@@ -198,7 +199,7 @@ function runCodex({jpegs, prompt, schema, codex, timeoutMs, onSpawn}) {
     const p = spawn(codex, ['exec', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--sandbox', 'read-only',
       '--skip-git-repo-check', '--json', '--output-schema', schemaFile, ...images.flatMap(f => ['--image', f]),
       '--output-last-message', answer, prompt],
-    {stdio: ['ignore', 'pipe', 'pipe'], cwd: dir});
+    {stdio: ['ignore', 'pipe', 'pipe'], cwd: dir, env: childEnv()});
     onSpawn?.(p);
     let stdout = '', diagnostics = '', settled = false, usage = null;
     const finish = (err, value) => {
@@ -228,17 +229,17 @@ function runCodex({jpegs, prompt, schema, codex, timeoutMs, onSpawn}) {
   });
 }
 
-export async function assessImage({jpeg, prompt, provider, timeoutMs = 120000, onSpawn}) {
-  const r = await provider.run({jpegs: [jpeg], prompt, schema: ASSESSMENT_SCHEMA, timeoutMs, onSpawn});
+export async function assessImage({jpeg, prompt, provider, timeoutMs = 120000, onSpawn, signal}) {
+  const r = await provider.run({jpegs: [jpeg], prompt, schema: ASSESSMENT_SCHEMA, timeoutMs, onSpawn, signal});
   return {assessment: normalizeAssessment(r.raw), stats: {...r.stats, batch: 1}};
 }
 
 // Several photos in one call. Any doubt about which answer belongs to which image
 // (wrong count, missing or repeated number, an invalid entry) rejects the whole batch;
 // the engine then assesses those photos one call each. Stats are the call's, shared out.
-export async function assessBatch({jpegs, prompt, provider, timeoutMs = 120000 + 30000 * (jpegs.length - 1), onSpawn}) {
+export async function assessBatch({jpegs, prompt, provider, timeoutMs = 120000 + 30000 * (jpegs.length - 1), onSpawn, signal}) {
   const n = jpegs.length;
-  const r = await provider.run({jpegs, prompt, schema: batchSchema(n), timeoutMs, onSpawn});
+  const r = await provider.run({jpegs, prompt, schema: batchSchema(n), timeoutMs, onSpawn, signal});
   const entries = r.raw?.photos;
   if (!Array.isArray(entries) || entries.length !== n) throw new Error('AI batch answer has the wrong number of photos');
   const byIndex = new Map(entries.map(e => [e?.index, e]));

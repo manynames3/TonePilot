@@ -2,7 +2,8 @@
 // Fake Codex CLI. Identifies each photo from its mock preview bytes and answers as
 // mock-answers.mjs says. Every call is logged to <state>.calls as its image count.
 import fs from 'node:fs';
-import {answerFor, photoIdOf} from './mock-answers.mjs';
+import {answerFor, photoIdOf, recordSecrets} from './mock-answers.mjs';
+recordSecrets('codex');
 const args = process.argv;
 const arg = n => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
 const answer = arg('--output-last-message'), schemaFile = arg('--output-schema');

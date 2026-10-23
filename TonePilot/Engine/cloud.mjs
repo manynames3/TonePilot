@@ -13,11 +13,11 @@ export function cloudProvider(env = process.env) {
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && LOCAL.includes(url.hostname)))
     throw new Error('TONEPILOT_CLOUD_URL must use https');
 
-  const provider = {name: 'cloud', model: 'cloud', async run({jpegs, prompt, timeoutMs}) {
+  const provider = {name: 'cloud', model: 'cloud', async run({jpegs, prompt, timeoutMs, signal}) {
     const started = Date.now();
     let response;
     try {
-      response = await fetch(url, {method: 'POST', signal: AbortSignal.timeout(timeoutMs),
+      response = await fetch(url, {method: 'POST', signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]),
         headers: {authorization: 'Bearer ' + license, 'content-type': 'application/json'},
         body: JSON.stringify({prompt, images: jpegs.map(jpeg => jpeg.toString('base64'))})});
     } catch (e) {

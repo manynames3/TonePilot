@@ -19,6 +19,9 @@ export function outputSchema(schema) {
 export function claudeClient(name, env = process.env) {
   const model = env.TONEPILOT_AI_MODEL || DEFAULT_MODELS[name];
   const baseURL = env.TONEPILOT_AI_BASE_URL || undefined;   // tests: a local mock of the Messages API
+  // It disables Bedrock signing and receives the API key, so it may only point at this machine.
+  if (baseURL && !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(baseURL).hostname))
+    throw new Error('TONEPILOT_AI_BASE_URL is only for local tests');
   const client = name === 'bedrock'
     ? new AnthropicBedrockMantle({awsRegion: env.TONEPILOT_AWS_REGION || env.AWS_REGION || 'us-east-1',
       awsProfile: env.TONEPILOT_AWS_PROFILE || undefined, baseURL, skipAuth: !!baseURL})
@@ -36,19 +39,21 @@ export async function pingClaude(name, env = process.env, timeoutMs = 20000) {
   return {model, ms: Date.now() - started};
 }
 
-export function claudeProvider(name, env = process.env) {
+// maxTokens bounds what one call can cost (thinking counts toward it); TonePilot Cloud sets
+// a smaller one than a photographer's own account.
+export function claudeProvider(name, env = process.env, {maxTokens = 16000} = {}) {
   const {client, model} = claudeClient(name, env);
   const effort = env.TONEPILOT_AI_EFFORT || 'medium';
 
-  return {name, model, async run({jpegs, prompt, schema, timeoutMs}) {
+  return {name, model, async run({jpegs, prompt, schema, timeoutMs, signal}) {
     const started = Date.now();
     const response = await client.messages.create({
-      model, max_tokens: 16000,
+      model, max_tokens: maxTokens,
       output_config: {effort, format: {type: 'json_schema', schema: outputSchema(schema)}},
       messages: [{role: 'user', content: [
         ...jpegs.map(jpeg => ({type: 'image', source: {type: 'base64', media_type: 'image/jpeg', data: jpeg.toString('base64')}})),
         {type: 'text', text: prompt}]}]
-    }, {timeout: timeoutMs});
+    }, {timeout: timeoutMs, maxRetries: 0, signal});   // one attempt per deadline; the engine retries on resume
     // A refusal or a cut-off answer is not an assessment; the photo is flagged like any AI failure.
     if (response.stop_reason === 'refusal') throw new Error('AI declined to assess this photo');
     if (response.stop_reason === 'max_tokens') throw new Error('AI answer was cut off');

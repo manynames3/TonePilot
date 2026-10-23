@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 // The fake model's answers, shared by the fake Codex CLI (mock-model.mjs) and the fake
 // Messages API (mock-claude.mjs): the assessment configured in the mock state
 // (state.ai[id]) or a default proposal; several images get a batch answer, and
@@ -14,3 +15,12 @@ export function answerFor(state, ids, batch) {
 }
 // Mock previews are FF D8 + 'MOCKPREVIEW:<photo id>:…'.
 export const photoIdOf = bytes => String(bytes).split(':')[1];
+
+// Records any AI or AWS secret a child process could read into <state>.child-secrets
+// (TonePilot's helpers — the bridge, the Codex CLI, the analyzer — must see none).
+export function recordSecrets(who) {
+  const seen = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'TONEPILOT_LICENSE']
+    .filter(k => process.env[k]);
+  if (seen.length && process.env.TONEPILOT_MOCK_STATE)
+    fs.appendFileSync(process.env.TONEPILOT_MOCK_STATE + '.child-secrets', who + ': ' + seen.join(',') + '\n');
+}
