@@ -31,6 +31,7 @@ final class AppModel: ObservableObject {
     @Published var operation: Operation?
     @Published var notice: Notice?
     @Published var approvals: [String: Set<String>] = [:]
+    let ai = AIServiceSettings()
 
     private static let defaults = UserDefaults.standard
     @Published var look = defaults.string(forKey: "look") ?? "Natural" { didSet { Self.defaults.set(look, forKey: "look") } }

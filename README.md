@@ -49,11 +49,11 @@ For portrait, family, wedding and event photographers who already know how to ed
 
 ## Your photos and privacy
 
-TonePilot sends 640-pixel Lightroom previews and the photo's current Develop values to the AI service behind **your** Codex CLI account. Face and highlight measurements run on your Mac. Make sure you have your clients' consent and accept your AI provider's terms before using client work.
+TonePilot sends 640-pixel Lightroom previews and the photo's current Develop values to the AI service **you** choose in Setup: your ChatGPT plan through the Codex CLI, Claude on Amazon Bedrock in your AWS account, or Claude through your Anthropic API key. Face and highlight measurements run on your Mac. Make sure you have your clients' consent and accept your AI provider's terms before using client work.
 
 ## Try the developer preview
 
-Test photos in a **backed-up, disposable catalog** only. Requirements: macOS 14+, Apple Silicon, Lightroom Classic, the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) 0.24.1, a signed-in Codex CLI, and the Xcode Command Line Tools and Node.js 18+ to build. The app bundles its own Node.js runtime.
+Test photos in a **backed-up, disposable catalog** only. Requirements: macOS 14+, Apple Silicon, Lightroom Classic, the [Lightroom MCP plug-in](https://github.com/Automaat/lightroom-mcp) 0.24.1, an AI service (a signed-in Codex CLI, Amazon Bedrock access, or an Anthropic API key), and the Xcode Command Line Tools and Node.js 18+ to build. The app bundles its own Node.js runtime.
 
 ```bash
 git clone https://github.com/manynames3/TonePilot.git

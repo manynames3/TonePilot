@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Fake Claude Messages API (Anthropic API and Bedrock Mantle share its shape) on a local
-// port written to TONEPILOT_MOCK_CLAUDE_PORT. Answers as mock-answers.mjs says and logs
+// port written to TONEPILOT_MOCK_CLAUDE_PORT. Answers as mock-answers.mjs says (doctor's
+// text-only ping gets "OK") and logs
 // every request's essentials to <state>.claude, one JSON line each. Exits when its parent
 // closes stdin. Faults from the mock state: aiFail (photo ids → HTTP 400), claudeRefusal.
 import fs from 'node:fs';
@@ -21,6 +22,13 @@ const server = http.createServer((req, res) => {
     const content = request.messages?.[0]?.content || [];
     const images = content.filter(b => b.type === 'image');
     const schema = request.output_config?.format?.schema;
+    // Doctor's live check: text only, no schema, a few tokens.
+    if (!schema && !images.length) {
+      fs.appendFileSync(STATE + '.claude', JSON.stringify({ping: true, model: request.model, maxTokens: request.max_tokens,
+        apiKey: req.headers['x-api-key'] || null}) + '\n');
+      return reply(200, {id: 'msg_mock', type: 'message', role: 'assistant', model: request.model,
+        content: [{type: 'text', text: 'OK'}], stop_reason: 'end_turn', stop_sequence: null, usage: {input_tokens: 12, output_tokens: 2}});
+    }
     fs.appendFileSync(STATE + '.claude', JSON.stringify({model: request.model, effort: request.output_config?.effort,
       images: images.length, apiKey: req.headers['x-api-key'] || null, schemaOk: !!schema && !hasUnsupported(schema)}) + '\n');
     fs.appendFileSync(STATE + '.calls', images.length + '\n');

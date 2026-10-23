@@ -15,13 +15,29 @@ export function outputSchema(schema) {
   return Object.fromEntries(Object.entries(schema).filter(([k]) => !UNSUPPORTED.has(k)).map(([k, v]) => [k, outputSchema(v)]));
 }
 
-export function claudeProvider(name, env = process.env) {
+// The one place a Claude client is configured; the assessment and doctor's live check share it.
+export function claudeClient(name, env = process.env) {
   const model = env.TONEPILOT_AI_MODEL || DEFAULT_MODELS[name];
   const baseURL = env.TONEPILOT_AI_BASE_URL || undefined;   // tests: a local mock of the Messages API
   const client = name === 'bedrock'
     ? new AnthropicBedrockMantle({awsRegion: env.TONEPILOT_AWS_REGION || env.AWS_REGION || 'us-east-1',
       awsProfile: env.TONEPILOT_AWS_PROFILE || undefined, baseURL, skipAuth: !!baseURL})
     : new Anthropic({apiKey: env.ANTHROPIC_API_KEY, baseURL});
+  return {client, model};
+}
+
+// Doctor's live check: the smallest real call (a few tokens of text, no image) that proves
+// the credentials work and the account can use the model.
+export async function pingClaude(name, env = process.env, timeoutMs = 20000) {
+  const {client, model} = claudeClient(name, env);
+  const started = Date.now();
+  await client.messages.create({model, max_tokens: 16, messages: [{role: 'user', content: [{type: 'text', text: 'Reply with OK.'}]}]},
+    {timeout: timeoutMs, maxRetries: 0});
+  return {model, ms: Date.now() - started};
+}
+
+export function claudeProvider(name, env = process.env) {
+  const {client, model} = claudeClient(name, env);
   const effort = env.TONEPILOT_AI_EFFORT || 'medium';
 
   return {name, model, async run({jpegs, prompt, schema, timeoutMs}) {
