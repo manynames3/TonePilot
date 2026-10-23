@@ -8,7 +8,7 @@
 //
 //   Run (needs the selected photos in Lightroom and each provider's credentials):
 //     node compare-providers.mjs run --ids '["123","456"]' --runs 2 --out <scratch-dir> \
-//       --try codex --try bedrock:anthropic.claude-opus-5-5 --try bedrock:anthropic.claude-sonnet-5-5
+//       --try codex:gpt-6.1-sol@low --try codex:gpt-6-luna@xhigh --try bedrock:anthropic.claude-sonnet-5-5
 //   Report on existing sessions (grouped by the provider and model in their journals):
 //     node compare-providers.mjs report <session-dir> [...] [--price anthropic.claude-opus-5-5=4,20]
 //
@@ -57,7 +57,10 @@ function run({ids, runs, out, tries}) {
     const [provider, ...model] = t.split(':');
     for (let i = 0; i < runs; i++) {
       const env = {...process.env, TONEPILOT_RUNS_DIR: out, TONEPILOT_AI_PROVIDER: provider};
-      if (model.length) env.TONEPILOT_AI_MODEL = model.join(':'); else delete env.TONEPILOT_AI_MODEL;
+      // provider:model@effort — e.g. codex:gpt-6-luna@xhigh, bedrock:anthropic.claude-sonnet-5-5
+      const [modelId, effort] = model.join(':').split('@');
+      if (modelId) env.TONEPILOT_AI_MODEL = modelId; else delete env.TONEPILOT_AI_MODEL;
+      if (effort) env.TONEPILOT_AI_EFFORT = effort; else delete env.TONEPILOT_AI_EFFORT;
       const r = spawnSync(process.execPath, [engine, '--mode', 'analyze', '--ids', ids], {env, encoding: 'utf8', timeout: 30 * 60000});
       const complete = (r.stdout || '').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return {}; } }).find(e => e.type === 'complete');
       if (!complete) { console.error(t + ' run ' + (i + 1) + ' failed: ' + (r.stdout || '').trim().split('\n').pop()); continue; }

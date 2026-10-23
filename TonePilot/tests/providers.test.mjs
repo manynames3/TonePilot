@@ -148,7 +148,7 @@ test('compare-providers runs each provider read-only and reports agreement, repe
       '--price', 'anthropic.claude-sonnet-5-5=2,10'], {env: x.env, encoding: 'utf8'});
     assert.equal(r.status, 0, r.stderr);
     const report = JSON.parse(r.stdout);
-    assert.equal(report.baseline, 'codex:codex');
+    assert.equal(report.baseline, 'codex:gpt-6.1-sol@default');
     const [codex, sonnet] = report.rows;
     assert.deepEqual([codex.runs, codex.photosAssessed, codex.repeatability.decisions], [2, 6, 1]);
     assert.equal(sonnet.provider, 'bedrock:anthropic.claude-sonnet-5-5');
@@ -231,5 +231,21 @@ test('classic Bedrock models (inference profiles such as us.anthropic.claude-son
     const calls = x.claudeCalls();
     assert.ok(calls.length === 3 && calls.every(c => c.classic && c.schemaOk && c.model === 'us.anthropic.claude-sonnet-4-6' && c.effort === undefined));
     assert.ok(x.show(r.complete.dir).photos.every(p => p.state === 'proposed'));
+  } finally { x.cleanup(); }
+});
+
+test('Codex runs a pinned model, the chosen reasoning level, and none of the photographer\'s plugins, apps or skills', async () => {
+  const {readFileSync} = await import('node:fs');
+  const x = setup({photos: THREE()});
+  try {
+    const calls = () => readFileSync(x.state + '.codex', 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    const dir = x.analyze(IDS);
+    assert.ok(calls().every(c => c.model === 'gpt-6.1-sol' && !c.config.some(k => k.startsWith('model_reasoning_effort'))));
+    for (const k of ['skills.include_instructions=false', 'features.plugins=false', 'features.apps=false', 'web_search="disabled"'])
+      assert.ok(calls()[0].config.includes(k), k);
+    assert.ok(x.journal(dir).filter(r => r.type === 'photo-assessed').every(r => r.stats.model === 'gpt-6.1-sol@default'));
+    const r = x.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)], {TONEPILOT_AI_MODEL: 'gpt-6-luna', TONEPILOT_AI_EFFORT: 'xhigh'});
+    assert.ok(calls().slice(-3).every(c => c.model === 'gpt-6-luna' && c.config.includes('model_reasoning_effort="xhigh"')));
+    assert.ok(x.journal(r.complete.dir).filter(r => r.type === 'photo-assessed').every(r => r.stats.model === 'gpt-6-luna@xhigh'));
   } finally { x.cleanup(); }
 });
