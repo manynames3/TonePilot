@@ -39,6 +39,7 @@ Mac app ──args──▶ engine.mjs ──TCP (localhost, token)──▶ Ton
 | `scenes.mjs` | Lighting-scene segmentation and reference frames |
 | `harmonize.mjs` | Scene-consistent, policy-bounded decisions |
 | `ai.mjs` | Prompt, strict output schema, Codex subprocess (one photo, or an opt-in batch of one scene's photos), bounded pool |
+| `claude.mjs`, `cloud.mjs` | Other assessment providers (`TONEPILOT_AI_PROVIDER`): Claude on Amazon Bedrock or the Anthropic API; TonePilot Cloud (`TONEPILOT_CLOUD_URL`, `TONEPILOT_LICENSE`, backend in `TonePilot/Cloud`) |
 | `lightroom.mjs` | Client factory (`connectLightroom`: TonePilot's plug-in if its `bridge.json` exists and it answers, else MCP); MCP client; pinned/bundled bridge; typed errors; apply-time selection interlock (`SelectionGuard`) |
 | `tonepilot-bridge.mjs` | Client for TonePilot's own plug-in (`TonePilot/LightroomPlugin`): two localhost ports, newline-delimited JSON, token per request |
 | `doctor.mjs` | Diagnostics |

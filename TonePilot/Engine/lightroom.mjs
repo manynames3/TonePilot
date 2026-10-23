@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
+import {childEnv} from './secrets.mjs';
 import {TonePilotBridge, bridgeFile} from './tonepilot-bridge.mjs';
 
 // The bridge version TonePilot was verified against. A floating `npx -y` would run
@@ -38,7 +39,7 @@ export class LightroomMCP {
     if (this.proc) throw new Error('MCP client already connected');
     const home = process.env.HOME || '';
     const proc = spawn(this.command, this.args, {stdio: ['pipe', 'pipe', 'pipe'],
-      env: {...process.env, PATH: path.dirname(process.execPath) + ':' + home + '/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}});
+      env: {...childEnv(), PATH: path.dirname(process.execPath) + ':' + home + '/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}});
     this.proc = proc;
     proc.stdout.on('data', chunk => this.onData(chunk));
     proc.stderr.on('data', chunk => { this.stderrTail = (this.stderrTail + String(chunk)).slice(-2000); });

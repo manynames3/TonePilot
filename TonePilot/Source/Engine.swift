@@ -86,6 +86,10 @@ final class EngineRunner {
         if let codex = Paths.codex { env["TONEPILOT_CODEX"] = codex }
         if let analyzer = Paths.analyzer { env["TONEPILOT_ANALYZER"] = analyzer.path }
         if let bridge = Paths.bundledBridge { env["TONEPILOT_MCP_SERVER"] = bridge.path }
+        // The AI service choice, and its key from the Keychain, only for the modes that use it.
+        if let i = arguments.firstIndex(of: "--mode"), i + 1 < arguments.count, ["doctor", "analyze"].contains(arguments[i + 1]) {
+            AIServiceSettings.apply(to: &env)
+        }
         task.environment = env
         task.standardInput = FileHandle.nullDevice
         let out = Pipe(), err = Pipe()

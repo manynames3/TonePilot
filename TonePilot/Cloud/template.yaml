@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  TonePilot Cloud: licensed, capped, schema-constrained photo assessment with Claude on
+  Amazon Bedrock. Run ./stage.sh before sam build. See README.md.
+
+Parameters:
+  AllowedModel:
+    Type: String
+    Default: anthropic.claude-opus-5-5
+    AllowedPattern: '^anthropic\.claude-[a-z0-9-]+$'
+    Description: The only Bedrock model the function calls (clients cannot choose).
+  DailyPhotoCap:
+    Type: Number
+    Default: 1000
+    MinValue: 1
+    Description: Photos per license per UTC day.
+  BudgetEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: Receives the monthly AWS Budgets alerts.
+  MonthlyBudgetUSD:
+    Type: Number
+    Default: 100
+    MinValue: 1
+    Description: Monthly account cost that triggers the alerts (alerts only; nothing is stopped).
+  LicenseSecretParameter:
+    Type: String
+    Default: /tonepilot/license-secret
+    AllowedPattern: '^/[A-Za-z0-9/_.-]+$'
+    Description: Name of the SSM SecureString holding the license-signing secret (created by the owner, never in this template).
+
+Resources:
+  AssessApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefaultRouteSettings:          # stage-wide; per-license limits are DailyPhotoCap
+        ThrottlingRateLimit: 10      # requests per second
+        ThrottlingBurstLimit: 20
+
+  AssessFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildProperties:
+        UseNpmCi: true               # install exactly package-lock.json
+    Properties:
+      CodeUri: .build/
+      Handler: Cloud/lambda.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 30                    # API Gateway HTTP APIs end every integration at 30 s
+      LoggingConfig:
+        LogGroup: !Ref AssessLogs
+      Environment:
+        Variables:
+          USAGE_TABLE: !Ref UsageTable
+          ALLOWED_MODEL: !Ref AllowedModel
+          DAILY_PHOTO_CAP: !Ref DailyPhotoCap
+          LICENSE_SECRET_PARAMETER: !Ref LicenseSecretParameter
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # Claude in Amazon Bedrock (Mantle endpoint). The project ARN form is from the AWS
+            # Projects IAM examples; the model ARN form is NOT verified (README, "Unverified").
+            # A wrong ARN can only deny, never widen access; the model is also fixed in code.
+            - Effect: Allow
+              Action: bedrock-mantle:CreateInference
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock-mantle:${AWS::Region}:${AWS::AccountId}:project/default
+                - !Sub arn:${AWS::Partition}:bedrock-mantle:${AWS::Region}::model/${AllowedModel}
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt UsageTable.Arn
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${LicenseSecretParameter}
+      Events:
+        Assess:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AssessApi
+            Path: /v1/assess
+            Method: POST
+            PayloadFormatVersion: '2.0'
+
+  AssessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /tonepilot/${AWS::StackName}/assess
+      RetentionInDays: 30
+
+  UsageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk          # <licenseId>#<YYYY-MM-DD>
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt     # rows expire after 90 days
+        Enabled: true
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub ${AWS::StackName}-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUSD
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+
+Outputs:
+  ApiUrl:
+    Description: TONEPILOT_CLOUD_URL for the app
+    Value: !Sub https://${AssessApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/
+  UsageTableName:
+    Value: !Ref UsageTable

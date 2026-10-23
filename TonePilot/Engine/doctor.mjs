@@ -1,14 +1,16 @@
 // First-run and support diagnostics. Read-only: nothing here changes Lightroom,
-// the plug-in, Codex or the user's files.
+// the plug-in, Codex, AWS or the user's files, and no secret is ever printed.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {childEnv} from './secrets.mjs';
 import {connectLightroom, readSelection, TESTED_BRIDGE_VERSION} from './lightroom.mjs';
 import {bridgeFile} from './tonepilot-bridge.mjs';
+import {PROVIDERS} from './ai.mjs';
 
 const home = os.homedir();
-const run = (cmd, args, timeout = 8000) => spawnSync(cmd, args, {encoding: 'utf8', timeout});
+const run = (cmd, args, timeout = 8000) => spawnSync(cmd, args, {encoding: 'utf8', timeout, env: childEnv()});
 const PLUGIN = path.join(home, 'Library/Application Support/Adobe/Lightroom/Modules/LightroomMCP.lrplugin');
 
 function lightroomApp() {
@@ -39,6 +41,96 @@ function bridgeServer() {
 }
 
 function check(id, ok, title, detail, fix = null, severity = 'required') { return {id, ok: !!ok, severity, title, detail, fix}; }
+
+// AWS profile names in the shared credentials and config files (never their contents).
+function awsProfiles(env) {
+  const names = new Set();
+  for (const [file, config] of [[env.AWS_SHARED_CREDENTIALS_FILE || path.join(home, '.aws/credentials'), false],
+    [env.AWS_CONFIG_FILE || path.join(home, '.aws/config'), true]]) {
+    let text = '';
+    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    for (const [, section] of text.matchAll(/^\s*\[\s*([^\]]+?)\s*\]/gm)) {
+      if (!config || section === 'default') names.add(section);
+      else if (section.startsWith('profile ')) names.add(section.slice(8).trim());
+    }
+  }
+  return names;
+}
+
+// Where Bedrock credentials will come from, in the SDK's order. Names the source only.
+function bedrockSource(env) {
+  const profiles = awsProfiles(env);
+  if (env.TONEPILOT_AWS_PROFILE) {
+    const p = env.TONEPILOT_AWS_PROFILE;
+    return profiles.has(p) ? {ok: true, detail: 'AWS profile “' + p + '” (~/.aws)'}
+      : {ok: false, detail: 'AWS profile “' + p + '” not found in ~/.aws',
+        fix: 'Create it with “aws configure --profile ' + p + '”, or clear the profile in Setup.'};
+  }
+  if (env.AWS_BEARER_TOKEN_BEDROCK) return {ok: true, detail: 'Bedrock API key'};
+  if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) return {ok: true, detail: 'AWS access keys from the environment'};
+  const p = env.AWS_PROFILE || 'default';
+  if (profiles.has(p)) return {ok: true, detail: 'AWS profile “' + p + '” (~/.aws)'};
+  return {ok: false, detail: 'No AWS credentials found', fix: 'Add a Bedrock API key in Setup, or sign in with the AWS CLI (“aws configure” or “aws sso login”).'};
+}
+
+// Only the selected provider is checked, so only its checks are required.
+async function aiChecks(env, live) {
+  const name = env.TONEPILOT_AI_PROVIDER || 'codex';
+  if (name === 'codex') {
+    const codex = env.TONEPILOT_CODEX || path.join(home, '.local/bin/codex');
+    const codexOk = fs.existsSync(codex);
+    const out = [check('codex', codexOk, 'Codex CLI (AI assessment)', codexOk ? 'Installed' : 'Not found',
+      codexOk ? null : 'Install the Codex CLI and sign in.')];
+    if (codexOk) {
+      const status = run(codex, ['login', 'status'], 15000);
+      const signedIn = status.status === 0 && /logged in/i.test((status.stdout || '') + (status.stderr || ''));
+      out.push(check('codex-auth', signedIn, 'AI service signed in', signedIn ? 'Signed in' : 'Not signed in',
+        signedIn ? null : 'Run “codex login” once in Terminal.'));
+    }
+    return out;
+  }
+  if (!PROVIDERS.includes(name)) return [check('ai-provider', false, 'AI service', 'Unknown service “' + name + '”', 'Choose an AI service in Setup.')];
+  // TonePilot Cloud holds the model credentials; here only its address and the license
+  // (whose expiry is readable without the signing secret) are checked. No model call.
+  if (name === 'cloud') {
+    let url = null;
+    try { url = new URL(env.TONEPILOT_CLOUD_URL || ''); } catch { /* not set or not a URL */ }
+    const local = url && url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    const urlOk = !!url && (url.protocol === 'https:' || local);
+    const [version, id, expires] = (env.TONEPILOT_LICENSE || '').split('.');
+    const days = Math.floor((Number(expires) * 1000 - Date.now()) / 86400000);
+    const licenseOk = version === 'tp1' && !!id && Number.isFinite(days) && days >= 0;
+    return [check('cloud-url', urlOk, 'TonePilot Cloud address', url ? url.host : 'Not set', urlOk ? null : 'TonePilot Cloud needs an https address.'),
+      check('cloud-license', licenseOk, 'TonePilot license', licenseOk ? 'Valid for ' + days + ' more days' : version === 'tp1' && id ? 'Expired' : 'Not set or not readable',
+        licenseOk ? null : 'Renew or re-enter your TonePilot license.')];
+  }
+
+  const out = [];
+  if (name === 'bedrock') {
+    const source = bedrockSource(env);
+    out.push(check('ai-credentials', source.ok, 'Amazon Bedrock access', source.detail, source.fix));
+    const region = env.TONEPILOT_AWS_REGION || env.AWS_REGION || 'us-east-1';
+    const regionOk = /^[a-z]{2}(-gov)?-[a-z]+-\d+$/.test(region);
+    out.push(check('ai-region', regionOk, 'AWS region', region, regionOk ? null : 'Enter an AWS region such as us-east-1 in Setup.'));
+  } else {
+    const key = env.ANTHROPIC_API_KEY || '';
+    out.push(check('ai-credentials', !!key, 'Anthropic API key', key ? 'Saved, ending in ' + key.slice(-4) : 'Not set',
+      key ? null : 'Add your Anthropic API key in Setup.'));
+  }
+  // One tiny text-only call through the same client the assessment uses.
+  if (live && out.every(c => c.ok)) {
+    let ok = false, detail;
+    try {
+      const r = await (await import('./claude.mjs')).pingClaude(name, env);
+      ok = true;
+      detail = r.model + ' answered in ' + r.ms + ' ms';
+    } catch (e) { detail = String(e?.message || e).slice(0, 200); }
+    out.push(check('ai-live', ok, 'AI service answered', detail, ok ? null : name === 'bedrock'
+      ? 'Check the credentials and region, and that this AWS account has access to the model in Bedrock.'
+      : 'Check the API key and that your Anthropic account can use the model.'));
+  }
+  return out;
+}
 
 export async function runDoctor({live = false} = {}) {
   const checks = [];
@@ -79,16 +171,7 @@ export async function runDoctor({live = false} = {}) {
   checks.push(check('bridge-server', server.ok, 'Bridge server ' + TESTED_BRIDGE_VERSION, server.where,
     server.ok ? null : 'Connect to the internet once so the pinned bridge can be downloaded, or use a bundled build.', 'recommended'));
 
-  const codex = process.env.TONEPILOT_CODEX || path.join(home, '.local/bin/codex');
-  const codexOk = fs.existsSync(codex);
-  checks.push(check('codex', codexOk, 'Codex CLI (AI assessment)', codexOk ? 'Installed' : 'Not found',
-    codexOk ? null : 'Install the Codex CLI and sign in.'));
-  if (codexOk) {
-    const status = run(codex, ['login', 'status'], 15000);
-    const signedIn = status.status === 0 && /logged in/i.test((status.stdout || '') + (status.stderr || ''));
-    checks.push(check('codex-auth', signedIn, 'AI service signed in', signedIn ? 'Signed in' : 'Not signed in',
-      signedIn ? null : 'Run “codex login” once in Terminal.'));
-  }
+  checks.push(...await aiChecks(process.env, live));
 
   const analyzer = process.env.TONEPILOT_ANALYZER;
   const st = analyzer && fs.existsSync(analyzer) ? run(analyzer, ['--selftest'], 20000) : null;

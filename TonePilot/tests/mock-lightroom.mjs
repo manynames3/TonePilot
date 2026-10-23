@@ -2,6 +2,9 @@
 // Fake Lightroom MCP bridge (JSON-RPC over stdio) around the shared fake Lightroom in
 // mock-core.mjs. The engine starts one per run, as it does the real bridge.
 import {callTool, FIELDS} from './mock-core.mjs';
+import {recordSecrets} from './mock-answers.mjs';
+
+recordSecrets('bridge');
 
 const out = obj => process.stdout.write(JSON.stringify(obj) + '\n');
 const respond = (id, result) => out({jsonrpc: '2.0', id, result});

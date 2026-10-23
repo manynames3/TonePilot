@@ -76,7 +76,8 @@ export function callTool(name, args, io, {writable, full = false}) {
       save(data);
       if (data.previewFailures[pid] <= flaky) return io.fail('[string "HandlerPreview.lua"]:91: Preview failed: error loading thumb');
     }
-    const body = Buffer.from('MOCKPREVIEW:' + args.photo_id + ':' + JSON.stringify(p.settings) + ':'.padEnd(200, '.'));
+    // Starts with a JPEG SOI marker so it passes TonePilot Cloud's JPEG check; it is not a decodable JPEG.
+    const body = Buffer.concat([Buffer.from([0xFF, 0xD8]), Buffer.from('MOCKPREVIEW:' + args.photo_id + ':' + JSON.stringify(p.settings) + ':'.padEnd(200, '.'))]);
     return io.reply({photo_id: args.photo_id, width: 640, height: 427, image: {mime_type: 'image/jpeg', data: body.toString('base64')}});
   }
   if (name === 'set_develop_settings') {

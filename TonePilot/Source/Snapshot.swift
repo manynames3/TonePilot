@@ -18,6 +18,13 @@ enum Snapshot {
         window.setFrame(NSRect(x: 80, y: 80, width: 1180, height: 800), display: true)
         model.route = .setup
         await capture(window, dir, "1-setup-\(appearance)")
+        // The AI service section with Claude's fields, in a tall window so it is in view. A
+        // draft only: nothing is saved, and snapshot mode never reads the Keychain.
+        model.ai.provider = .bedrock
+        window.setFrame(NSRect(x: 80, y: 80, width: 1180, height: 1500), display: true)
+        await capture(window, dir, "1-setup-ai-\(appearance)")
+        model.ai.load()
+        window.setFrame(NSRect(x: 80, y: 80, width: 1180, height: 800), display: true)
         model.route = .newPass
         if model.selection == nil { await model.readSelection() }
         await capture(window, dir, "2-new-pass-\(appearance)")
