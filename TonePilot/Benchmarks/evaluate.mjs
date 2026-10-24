@@ -12,7 +12,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const TARGETS = Object.freeze({acceptance: 0.85, majorRegression: 0.02, timeSaved: 0.40, minPhotos: 100});
+export const TARGETS = Object.freeze({acceptance: 0.85, majorRegression: 0.02, timeSaved: 0.40, minPhotos: 100,
+  skinGroupPhotos: 30, skinGroupFloor: 0.75});
 
 // Wilson score interval: honest at small n and near 0 or 1, unlike p ± 1.96·SE.
 export function wilson(k, n, z = 1.96) {
@@ -66,6 +67,17 @@ function byCategory(rows, key) {
   }));
 }
 
+// "No skin group materially worse": every recorded group needs enough photos to judge, and
+// its acceptance lower bound must clear a floor 10 points under the target. Unrecorded skin
+// or a group too small to judge is "insufficient" and blocks validation; it never passes silently.
+function assessSkin(groups) {
+  for (const [name, g] of Object.entries(groups))
+    g.assessment = name === 'unspecified' || g.photos < TARGETS.skinGroupPhotos ? 'insufficient'
+      : g.acceptanceCI[0] >= TARGETS.skinGroupFloor ? 'pass' : 'below-floor';
+  const list = Object.values(groups);
+  return list.length >= 2 && list.every(g => g.assessment === 'pass');
+}
+
 // Reliability of the model's self-reported confidence, and the lowest threshold whose
 // accepted-rate clears the target. Without this, confidence is just a number.
 export function calibration(rows, target = TARGETS.acceptance) {
@@ -93,7 +105,12 @@ export function calibration(rows, target = TARGETS.acceptance) {
 export function evaluate(raw) {
   if (!Array.isArray(raw?.photos) || !raw.photos.length) throw new Error('Missing evaluations');
   if (raw.blinded !== true) throw new Error('Evaluations must document blind scoring');
-  const rows = raw.photos;
+  const rows = raw.photos, seen = new Set();
+  for (const r of rows) {
+    if (r?.id == null || r.id === '') throw new Error('Every photo needs an id');
+    if (seen.has(String(r.id))) throw new Error('Duplicate photo id ' + r.id);
+    seen.add(String(r.id));
+  }
   const methods = [...new Set(rows.flatMap(r => Object.keys(r.scores || {})))];
   if (!methods.includes('tonepilot')) throw new Error('No TonePilot scores');
   const results = Object.fromEntries(methods.map(m => [m, summarize(rows, m)]));
@@ -105,6 +122,7 @@ export function evaluate(raw) {
       significantlyBetter: test.p < 0.05 && test.onlyA > test.onlyB, timeSavedFraction: saved};
   });
   const best = comparisons.reduce((a, c) => (a === null || (c.timeSavedFraction ?? -1) < (a.timeSavedFraction ?? -1) ? c : a), null);
+  const lightingGroups = byCategory(rows, 'lighting'), skinGroups = byCategory(rows, 'skin');
   const gates = {
     enoughPhotos: rows.length >= TARGETS.minPhotos,
     acceptanceAtLeast85: tp.acceptance >= TARGETS.acceptance,
@@ -112,10 +130,10 @@ export function evaluate(raw) {
     regressionsUnder2Percent: tp.majorRegressionRate < TARGETS.majorRegression,
     regressionUpperBoundUnder2Percent: tp.majorRegressionCI[1] < TARGETS.majorRegression,
     timeSavedAtLeast40AgainstEveryBaseline: comparisons.length > 0 && comparisons.every(c => c.timeSavedFraction !== null && c.timeSavedFraction >= TARGETS.timeSaved),
-    significantlyBetterThanABaseline: comparisons.some(c => c.significantlyBetter)
+    significantlyBetterThanABaseline: comparisons.some(c => c.significantlyBetter),
+    everySkinGroupAssessedAndAtLeast75: assessSkin(skinGroups)
   };
-  const lightingGroups = byCategory(rows, 'lighting'), skinGroups = byCategory(rows, 'skin');
-  const weakest = Object.entries(skinGroups).filter(([, g]) => g.photos >= 10).sort((a, b) => a[1].acceptance - b[1].acceptance)[0];
+  const weakest = Object.entries(skinGroups).filter(([, g]) => g.assessment !== 'insufficient').sort((a, b) => a[1].acceptance - b[1].acceptance)[0];
   return {evaluations: rows.length, methods: results, comparisons, hardestBaseline: best?.baseline ?? null,
     byLighting: lightingGroups, bySkinGroup: skinGroups,
     weakestSkinGroup: weakest ? {group: weakest[0], ...weakest[1]} : null,
@@ -126,7 +144,9 @@ export function evaluate(raw) {
 
 if (import.meta.url === 'file://' + path.resolve(process.argv[1] || '')) {
   if (process.argv.length !== 3) { console.error('Usage: node evaluate.mjs /path/to/independently-scored-gallery.json'); process.exit(2); }
-  const result = evaluate(JSON.parse(fs.readFileSync(process.argv[2], 'utf8')));
+  let result;
+  try { result = evaluate(JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))); }
+  catch (e) { console.error(e.message); process.exit(1); }
   console.log(JSON.stringify(result, null, 2));
   if (!result.gates.enoughPhotos) { console.error('Preliminary sample under ' + TARGETS.minPhotos + ' photos; do not market this result.'); process.exitCode = 3; }
 }

@@ -42,6 +42,10 @@ At least three real RAW galleries (different bodies, including one wedding with 
 
 **Pass ("validated")**: ≥ 100 photos; lower 95% bound of acceptance ≥ 85%; upper bound of major regressions < 2%; ≥ 40% less time than every baseline; a statistically significant paired advantage (McNemar p < 0.05) over at least one baseline; no skin group materially worse than the others. The tool refuses to call smaller samples validated.
 
+- **Skin groups** (gate `everySkinGroupAssessedAndAtLeast75`): at least two recorded groups, each with ≥ 30 photos and an acceptance lower 95% bound ≥ 75% (10 points under the target), so a strong average can never hide a weak group. A group under 30 photos, or photos with no skin group recorded (`unspecified`), is reported as `insufficient` and blocks validation rather than passing silently; a group below the floor is `below-floor`. In practice a 30-photo group needs ≥ 28 accepted, a 50-photo group ≥ 44.
+- **Regressions:** with zero major regressions, the Wilson upper bound first drops below 2% at **189 photos** (0/189 → 1.992%; 0/188 → 2.002%). So the 100-photo minimum cannot pass the regression gate; plan for ≥ 189, more if any regression is expected.
+- **Input errors** (exit 1, nothing is scored): duplicate photo ids, a photo without an id, or a photo missing a score for any method that appears anywhere in the file.
+
 Calibration: the same file yields a reliability table and the lowest model-confidence threshold whose acceptance lower bound clears 85%. Replace the strength thresholds in `policy.mjs` with calibrated ones only from this output.
 
 ## G4 — scale
