@@ -208,3 +208,16 @@ eachBridge('sessions survive relaunch: the list is rebuilt from journals with de
     assert.notEqual(discard.status, 0, 'an applied session cannot be discarded');
   } finally { x.cleanup(); }
 });
+
+test('a new pass defaults to exposure and white balance only: tone sliders are opt-in', async () => {
+  const {setup} = await import('./helpers.mjs');
+  const x = setup();
+  try {
+    x.set(s => { s.aiDefault = {skip: false, confidence: 0.95, scene: '', illuminant: 'daylight', mixedLighting: false, backlit: false,
+      intent: 'none', skinCast: 'none', subjectExposure: 'under', reason: '', changes: [{setting: 'Shadows2012', value: 30}, {setting: 'Exposure2012', value: 0.3}]}; });
+    const dir = x.analyze(['101']);
+    const session = x.journal(dir).find(r => r.type === 'session-created');
+    assert.deepEqual(session.config.enabled, {wb: true, exposure: true, tone: false});
+    assert.ok(!x.show(dir).photos[0].changes.some(c => c.key === 'Shadows2012'), 'the model\'s tone proposal is not used');
+  } finally { x.cleanup(); }
+});

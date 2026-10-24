@@ -115,7 +115,7 @@ async function doAnalyze(client) {
   const ids = validateIDs(JSON.parse(opt('ids', '[]')));
   const look = opt('look', 'Natural'), strength = opt('strength', 'Balanced');
   const policy = resolvePolicy(look, strength);
-  const enabled = {wb: opt('wb', 'true') === 'true', exposure: opt('exposure', 'true') === 'true', tone: opt('tone', 'true') === 'true'};
+  const enabled = {wb: opt('wb', 'true') === 'true', exposure: opt('exposure', 'true') === 'true', tone: opt('tone', 'false') === 'true'};   // tone sliders are opt-in
   if (!enabled.wb && !enabled.exposure && !enabled.tone) throw new Error('No enabled corrections');
   const selected = await requireSameSelection(client, ids);
   fs.mkdirSync(runs, {recursive: true, mode: 0o700});

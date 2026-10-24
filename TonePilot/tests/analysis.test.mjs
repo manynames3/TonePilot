@@ -117,15 +117,17 @@ test('one outlier frame does not switch off scene matching for the others', () =
   assert.ok(Math.abs(ev(d, ps[3]) - 1.0) < 0.011, 'outlier keeps its own assessment');
 });
 
-test('confidence thresholds differ by strength; skipped and uncertain photos are never edited', () => {
+test('one confidence bar at every strength; skipped and uncertain photos are never edited', () => {
   n = 0;
   const ps = [photo({ai: {confidence: 0.85, subjectExposure: 'under', proposed: {Exposure2012: 0.5}}}),
-    photo({ai: {skip: true, reason: 'Intentional silhouette'}})];
-  const sub = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Subtle'), enabled: ALL});
-  const str = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
-  assert.equal(sub[ps[0].id].status, 'flagged');
-  assert.equal(str[ps[0].id].status, 'proposed');
-  assert.equal(sub[ps[1].id].status, 'skipped'); assert.deepEqual(sub[ps[1].id].changes, {});
+    photo({ai: {skip: true, reason: 'Intentional silhouette'}}),
+    photo({ai: {confidence: 0.79, subjectExposure: 'under', proposed: {Exposure2012: 0.5}}})];
+  for (const strength of ['Subtle', 'Balanced', 'Stronger']) {
+    const d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', strength), enabled: ALL});
+    assert.equal(d[ps[0].id].status, 'proposed', strength);
+    assert.equal(d[ps[1].id].status, 'skipped'); assert.deepEqual(d[ps[1].id].changes, {});
+    assert.equal(d[ps[2].id].status, 'flagged', strength + ' must not lower the bar');
+  }
 });
 
 test('highlight protection limits brightening when it would clip detail', () => {
@@ -230,4 +232,11 @@ test('oversized Lightroom previews are scaled down before measurement and the mo
     assert.equal(savePreview(small, path.join(dir, 'b.jpg')), small);   // never upscaled
     assert.equal(jpegSize(Buffer.from('not a jpeg')), null);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('strength changes how far TonePilot moves a photo, never how sure it must be', () => {
+  const [subtle, balanced, stronger] = ['Subtle', 'Balanced', 'Stronger'].map(s => resolvePolicy('Natural', s));
+  assert.equal(subtle.minConfidence, balanced.minConfidence);
+  assert.equal(stronger.minConfidence, balanced.minConfidence, 'Stronger must not admit photos the evidence is less sure about');
+  assert.ok(subtle.caps.Exposure2012 < balanced.caps.Exposure2012 && balanced.caps.Exposure2012 < stronger.caps.Exposure2012);
 });
