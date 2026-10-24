@@ -52,6 +52,40 @@ test('results are broken down by skin group and lighting, and the weakest group 
   assert.deepEqual(Object.keys(r.byLighting).sort(), ['daylight', 'tungsten']);
 });
 
+test('a skin group that is materially worse, or too small to assess, blocks validation', () => {
+  // 450 photos of one group all accepted, 50 of another all rejected: 90% overall clears every other gate.
+  const g = gallery(500, {tpAccept: 1});
+  g.photos.forEach((p, i) => { p.category.skin = i < 450 ? 'I-II' : 'V-VI'; p.scores.tonepilot.accepted = i < 450; });
+  const bad = evaluate(g);
+  assert.ok(bad.methods.tonepilot.acceptanceCI[0] >= 0.85);
+  assert.equal(bad.bySkinGroup['V-VI'].assessment, 'below-floor');
+  assert.equal(bad.gates.everySkinGroupAssessedAndAtLeast75, false);
+  assert.equal(bad.validated, false, 'a 0% skin group must never be hidden by a strong average');
+  // The same group fully accepted but with only 10 photos: insufficient, not a silent pass.
+  const small = gallery(460, {tpAccept: 1});
+  small.photos.forEach((p, i) => { p.category.skin = i < 450 ? 'I-II' : 'V-VI'; });
+  const r = evaluate(small);
+  assert.equal(r.bySkinGroup['V-VI'].assessment, 'insufficient');
+  assert.equal(r.validated, false);
+  // Unrecorded skin groups, or a single group, cannot show that no group is worse.
+  assert.equal(evaluate(gallery(300, {tpAccept: 0.93, skins: ['III-IV']})).gates.everySkinGroupAssessedAndAtLeast75, false);
+  const none = gallery(300, {tpAccept: 0.93}); none.photos.forEach(p => delete p.category.skin);
+  assert.equal(evaluate(none).bySkinGroup.unspecified.assessment, 'insufficient');
+});
+
+test('duplicate photo ids and photos missing a method\'s score are rejected', () => {
+  const dup = gallery(120); dup.photos[5].id = dup.photos[4].id;
+  assert.throws(() => evaluate(dup), /Duplicate photo id p4/);
+  const missing = gallery(120); delete missing.photos[7].scores['lightroom-auto'];
+  assert.throws(() => evaluate(missing), /Incomplete independent scoring for lightroom-auto on p7/);
+  const extra = gallery(120); extra.photos[0].scores.aftershoot = extra.photos[0].scores.tonepilot;
+  assert.throws(() => evaluate(extra), /aftershoot on p1/);
+});
+
+test('zero regressions prove < 2% only from 189 photos (Wilson upper bound)', () => {
+  assert.ok(wilson(0, 189)[1] < 0.02 && wilson(0, 188)[1] >= 0.02);
+});
+
 test('calibration turns self-reported confidence into an evidence-based threshold', () => {
   const rows = Array.from({length: 200}, (_, i) => {
     const confidence = 0.5 + (i % 50) / 100;
@@ -100,4 +134,60 @@ test('vs-photographer: records the photographer\'s finished values read-only, th
     assert.equal(ev.changedWhenPhotographerDidNot, 1, 'B was brightened although the photographer left it alone');
     assert.deepEqual([tint.photographerChanged, tint.medianDistanceUnedited, tint.closer], [1, 6, 0]);
   } finally { x.cleanup(); }
+});
+
+test('owner-review: every photo is listed, ratings come from stdin, resume keeps answers, report is labelled', async () => {
+  const {spawnSync} = await import('node:child_process');
+  const {mkdtempSync, rmSync, statSync, readFileSync} = await import('node:fs');
+  const {join} = await import('node:path');
+  const {tmpdir} = await import('node:os');
+  const {Journal} = await import('../Engine/journal.mjs');
+  const script = new URL('../Benchmarks/owner-review.mjs', import.meta.url).pathname;
+  const temp = mkdtempSync(join(tmpdir(), 'tonepilot-review-'));
+  try {
+    const dir = join(temp, 'session-1'), out = join(temp, 'review.json');
+    const j = Journal.create(dir, 'session-created', {id: 'S1', photos: ['A', 'B', 'C', 'D'].map((f, i) => ({id: String(i + 1), filename: f + '.CR3'}))});
+    for (const id of ['1', '2', '3']) j.append('photo-baseline', {photo: id, baseline: {Exposure2012: 0, Temperature: 5000}});
+    j.append('photo-proposed', {photo: '1', decision: {status: 'proposed', changes: {Exposure2012: 0.3, Temperature: 5400}}});
+    j.append('photo-proposed', {photo: '2', decision: {status: 'skipped', changes: {}, reason: 'Already well exposed'}});
+    j.append('photo-proposed', {photo: '3', decision: {status: 'flagged', changes: {}, reason: 'Mixed light'}});
+    j.append('photo-unsupported', {photo: '4', reason: 'Video'});
+    j.close();
+    const run = (args, input) => spawnSync(process.execPath, [script, ...args], {input, encoding: 'utf8'});
+
+    let r = run(['start', dir, '--out', out]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(statSync(out).mode & 0o777, 0o600);
+    let review = JSON.parse(readFileSync(out, 'utf8'));
+    assert.deepEqual(review.photos.map(p => p.tonepilot.state), ['proposed', 'skipped', 'flagged', 'unsupported'], 'unchanged and flagged photos are included');
+    assert.deepEqual(review.photos[0].tonepilot.changes.map(c => [c.setting, c.from, c.to]).sort(), [['Exposure', 0, 0.3], ['Temperature', 5000, 5400]]);
+
+    // Photo A fully (an invalid answer is asked again), then input ends part-way through B.
+    r = run(['rate', out], 'better\nmaybe\nw\ntoo cool on skin\ns\n');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /A\.CR3 — Edit proposed[\s\S]*Exposure: 0 → 0\.3/);
+    assert.match(r.stdout, /Please answer/);
+    review = JSON.parse(readFileSync(out, 'utf8'));
+    const a = review.photos[0].rating;
+    assert.deepEqual([a.exposure, a.whiteBalance, a.note], ['better', 'worse', 'too cool on skin']);
+    assert.equal(review.photos[1].rating.exposure, 'same', 'saved after every answer');
+
+    // Resuming start keeps answers; rating continues with B's white balance.
+    assert.equal(run(['start', dir, '--out', out]).status, 0);
+    r = run(['rate', out], 'n\n\nworse\nna\nshould have brightened\nna\nna\n\n');
+    assert.match(r.stdout, /All 4 photos rated/);
+    review = JSON.parse(readFileSync(out, 'utf8'));
+    assert.equal(review.photos[0].rating.note, 'too cool on skin');
+    assert.deepEqual(review.photos.map(p => [p.rating.exposure, p.rating.whiteBalance]),
+      [['better', 'worse'], ['same', 'na'], ['worse', 'na'], ['na', 'na']]);
+
+    r = run(['report', out]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /OWNER PILOT — NOT VALIDATED/);
+    assert.match(r.stdout, /Exposure: +better 1, same 1, worse 1, na 1, unrated 0/);
+    assert.match(r.stdout, /White balance: better 0, same 0, worse 1, na 3, unrated 0/);
+    assert.match(r.stdout, /A\.CR3 \[Edit proposed\] white balance — too cool on skin/);
+    assert.match(r.stdout, /C\.CR3 \[Needs your review\] exposure — should have brightened/);
+    assert.notEqual(run(['start', join(temp, 'missing'), '--out', out]).status, 0);
+  } finally { rmSync(temp, {recursive: true, force: true}); }
 });
