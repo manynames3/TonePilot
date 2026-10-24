@@ -65,3 +65,14 @@ test('refuses before any write when a selected photo is outside the sandbox fold
   assert.equal(r.writes.length, 0);
   assert.equal(spawnSync(process.execPath, [SCRIPT], {encoding: 'utf8'}).status, 2, 'and without --i-have-a-backup');
 });
+
+test('refuses an over-broad sandbox folder before connecting to Lightroom', () => {
+  const x = setup({photos: {101: rawPhoto('S_101.CR3')}});
+  try {
+    const home = join(x.temp, 'home');
+    const r = spawnSync(process.execPath, [SCRIPT, '--i-have-a-backup', '--sandbox', home], {env: {...x.env, HOME: home}, encoding: 'utf8', timeout: 30000});
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /must be named TonePilot-Sandbox/);
+    assert.equal(x.get().writes.length, 0);
+  } finally { x.cleanup(); }
+});

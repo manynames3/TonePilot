@@ -259,3 +259,30 @@ test('different people under the same light and camera exposure keep their own b
   const d2 = decide({photos: [a, b, drift], scenes: scene([a, b, drift]), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
   assert.ok(ev(d2, drift) > 0.25, 'exposure drift is still corrected: ' + ev(d2, drift));
 });
+
+test('same camera exposure: the scene\'s shared judgment is used, so one frame\'s model noise is not applied', () => {
+  n = 0;
+  const ps = [photo({face: 0.12}), photo({face: 0.12}), photo({face: 0.12, ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.4}}})];
+  const d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.ok(Math.abs(ev(d, ps[2])) < 0.05, 'noise on one identical frame is absorbed: ' + ev(d, ps[2]));
+  // A frame already adjusted in Lightroom (+0.5 EV) is no longer at the same exposure as its neighbours.
+  n = 0;
+  const edited = [photo({face: 0.12}), photo({face: 0.12}), photo({face: 0.165, baseline: {Exposure2012: 0.5}})];   // ~0.46 EV brighter: inside the agreeing window
+  const d2 = decide({photos: edited, scenes: scene(edited), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.ok(ev(d2, edited[2]) < -0.4, 'matched back toward the scene: ' + ev(d2, edited[2]));
+});
+
+test('flash frames are matched by face brightness: flash output varies even when camera settings do not', () => {
+  n = 0;
+  const ps = [photo({face: 0.12, flash: 'Fired'}), photo({face: 0.12, flash: 'Fired'}), photo({face: 0.09, flash: 'Fired'})];
+  const d = decide({photos: ps, scenes: [{id: 'S1', photos: ps.map(p => p.id), reference: ps[0].id, flash: true}],
+    policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.ok(Math.abs(ev(d, ps[2]) - Math.log2(0.12 / 0.09)) < 0.03, 'darker flash frame lifted by the measured gap: ' + ev(d, ps[2]));
+});
+
+test('rejections name the single evidence threshold', () => {
+  n = 0;
+  const p = photo({ai: {confidence: 0.79}});
+  const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.match(d[p.id].reason, /^Below the evidence threshold \(82%; model reported 79%, uncalibrated\)/);
+});

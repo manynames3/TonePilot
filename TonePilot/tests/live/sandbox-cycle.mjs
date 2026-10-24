@@ -25,8 +25,13 @@ import {developmentView} from '../../Engine/guard.mjs';
 const argv = process.argv.slice(2);
 const arg = (n, f) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : f; };
 if (!argv.includes('--i-have-a-backup')) { console.error('Refusing: back up the sandbox catalog, then pass --i-have-a-backup.'); process.exit(2); }
-const sandbox = path.resolve(arg('sandbox', path.join(os.homedir(), 'Pictures/TonePilot-Sandbox'))) + path.sep;
-const inSandbox = p => typeof p === 'string' && path.isAbsolute(p) && path.resolve(p).startsWith(sandbox);
+// Symlinks are resolved where the path exists, and the folder must be the dedicated one: an
+// over-broad --sandbox (~ or /Users) would otherwise admit every photo below it.
+const real = p => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+const sandboxDir = real(arg('sandbox', path.join(os.homedir(), 'Pictures/TonePilot-Sandbox')));
+if (path.basename(sandboxDir) !== 'TonePilot-Sandbox') { console.error('Refusing: the sandbox folder must be named TonePilot-Sandbox.'); process.exit(2); }
+const sandbox = sandboxDir + path.sep;
+const inSandbox = p => typeof p === 'string' && path.isAbsolute(p) && real(p).startsWith(sandbox);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ENGINE = path.resolve(here, '../../Engine/engine.mjs');
 const runs = process.env.TONEPILOT_RUNS_DIR ? path.resolve(process.env.TONEPILOT_RUNS_DIR) : fs.mkdtempSync(path.join(os.tmpdir(), 'tonepilot-sandbox-runs-'));
@@ -36,8 +41,14 @@ const report = {startedAt: new Date().toISOString(), sandbox, runs, bridge: null
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 for (const event of ['uncaughtException', 'unhandledRejection']) process.on(event, e => step('no unexpected error', false, {message: String(e?.message || e)}));
 
+let pendingEdit = null;   // the simulated photographer edit, until it is put back
 function finish(code) {
   report.finishedAt = new Date().toISOString();
+  if (pendingEdit && code !== 0) {
+    report.recovery = 'Photo ' + pendingEdit.id + ': the simulated edit set Exposure to ' + pendingEdit.to + '. Set it back to ' +
+      pendingEdit.from + ' in Lightroom (or restore the catalog backup), then restore the session.';
+    console.log('RECOVERY ' + report.recovery);
+  }
   report.pass = code === 0 && report.steps.length > 0 && report.steps.every(s => s.ok);
   const file = path.join(runs, 'sandbox-report.json');
   fs.writeFileSync(file, JSON.stringify(report, null, 2));
@@ -85,6 +96,7 @@ const ids = sel.photos.map(p => p.id);
 const before = await snapshot(ids);
 const outside = ids.filter(id => !inSandbox(sel.photos.find(p => p.id === id).path) || !inSandbox(before[id].path));
 report.developFields = [...new Set(Object.values(before).flatMap(s => Object.keys(s.developSettings)))].sort();
+step('bridge is the tested version', report.bridge.kind !== 'mcp' || report.bridge.version === TESTED_BRIDGE_VERSION, report.bridge);
 step('selection is 1–5 sandbox photos', sel.count >= 1 && sel.count <= 5 && !sel.truncated && !outside.length, {count: sel.count, outside: outside.length});
 const rawIds = ids.filter(id => ['RAW', 'DNG'].includes(before[id].format));
 
@@ -119,6 +131,7 @@ step('RAW white-balance writes show WhiteBalance "Custom"', wbIds.every(id => mi
 const edited = exposed[0].id, tpValue = mid[edited].values.Exposure2012;
 const manual = Math.round((tpValue + (tpValue > 4 ? -0.4 : 0.4)) * 100) / 100;
 const setExposure = (id, value) => withBridge(c => c.tool('set_develop_settings', {photo_id: id, settings: {Exposure2012: value}}));
+pendingEdit = {id: edited, from: tpValue, to: manual};
 await setExposure(edited, manual);
 const handEdited = (await snapshot([edited]))[edited];
 step('simulated photographer edit (sandbox only): Exposure2012 set through the bridge', Math.abs(handEdited.values.Exposure2012 - manual) < 0.006, {photo: edited, from: tpValue, to: manual});
@@ -139,6 +152,7 @@ function checkRestored(label, which, view, now) {
 }
 checkRestored('other photos', others, v1, s1);
 await setExposure(edited, tpValue);
+pendingEdit = null;
 step('photographer puts TonePilot\'s value back (sandbox only)', (await snapshot([edited]))[edited].values.Exposure2012 === tpValue, {photo: edited, value: tpValue});
 const r2 = engine(['--mode', 'restore', '--session', dir, '--confirm']);
 const v2 = show(dir);

@@ -225,3 +225,23 @@ test('any white-balance write also selects Custom, as Lightroom\'s own sliders d
     assert.equal(x.show(dir).status, 'restored');
   } finally { x.cleanup(); }
 });
+
+test('a half-way change made on the measurement alone stays on that photo; neighbours are not synced to it', () => {
+  const a = {...castPhoto({a: 3.4, b: -2.66}), id: 'a'};
+  const b = {...castPhoto({a: 0, b: 0}), id: 'b'}, c = {...castPhoto({a: 0, b: 0}), id: 'c'};
+  b.metrics = {...b.metrics, whites: {a: 0, b: 0, fraction: 0.005}, neutral: {a: 3.4, b: -2.66, fraction: 0.5}};
+  const d = decide({photos: [a, b, c], scenes: [{id: 'S1', photos: ['a', 'b', 'c'], flash: false}],
+    policy: resolvePolicy('Natural', 'Stronger'), enabled: {wb: true, exposure: true, tone: false}});
+  assert.ok('Tint' in d.a.changes, 'the measured photo is corrected half-way');
+  assert.ok(!('Tint' in d.b.changes) && !('Tint' in d.c.changes), JSON.stringify([d.b.changes, d.c.changes]));
+});
+
+test('the disagree warning ignores negligible measured components and names the real source', () => {
+  // Model: cooler skin (raise Kelvin) and less magenta. Measurement: clearly magenta; its temperature component
+  // (under 3 mired here) is too small to agree or disagree with anything.
+  const d = decideStrong(castPhoto({a: 3.0, b: -2.1}, {skinTone: {verdict: 'too-cool-and-magenta', temperatureShift: 300, tintShift: -3, note: ''}}));   // +300 K vs a −50 K (2 mired) measured component
+  assert.ok(!d.warnings.some(w => /disagree/.test(w)), JSON.stringify(d.warnings));
+  const p = castPhoto({a: -3, b: 0}, {skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: -3, note: ''}});
+  p.metrics.whites.fraction = 0.005; p.metrics.neutral = {a: -3, b: 0, fraction: 0.5};
+  assert.ok(decideStrong(p).warnings.some(w => /measured neutral areas disagree/.test(w)));
+});
