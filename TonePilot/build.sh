@@ -24,7 +24,7 @@ if [[ -z "$SIGN_ID" ]]; then
     # "TonePilot Local") keeps macOS permission grants across rebuilds; an ad-hoc signature
     # changes with every build, so macOS asks again. Picked by hash: no name lands in the repo.
     SIGN_ID="$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null \
-        | /usr/bin/grep -E '"(TonePilot Local|Apple Development: [^"]*)"' | /usr/bin/head -1 | /usr/bin/awk '{print $2}')"
+        | /usr/bin/grep -E '"(TonePilot Local|Apple Development: [^"]*)"' | /usr/bin/head -1 | /usr/bin/awk '{print $2}' || true)"
     SIGN_ID="${SIGN_ID:--}"
 fi
 # Only Developer ID builds are distributed, so only they need a secure timestamp.
