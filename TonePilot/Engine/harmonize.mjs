@@ -262,15 +262,16 @@ function skinToneLine(p, d) {
   const st = p.ai.skinTone, relative = p.capabilities?.wbMode === 'relative';
   const wbChanged = ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint'].some(k => k in d.changes);
   const ev = p.wbEvidence;
-  if (ev?.source === 'measured' || ev?.source === 'deliberate') {
+  if (ev?.source === 'measured' || ev?.source === 'deliberate' || ev?.source === 'advisory') {
     const what = ev.cast.source + ' measure ' + describeCast(ev.cast) + ' (a* ' + signed(ev.cast.a, 1) + ', b* ' + signed(ev.cast.b, 1) + ')';
     const ai = st?.verdict === 'correct' ? 'Skin judged natural by the AI, but ' : '';
     if (ev.source === 'deliberate') return ai + what + ' — kept, the light colour looks deliberate.';
-    return ai + what + (wbChanged ? ' — corrected from the measurement.' : ' — too small to change.');
+    if (ev.source === 'advisory') return ai + what + ' — advisory only; without a white reference that is not enough to change white balance.';
+    return ai + what + (wbChanged ? ' — corrected half-way from the measurement.' : ' — too small to change.');
   }
   if (ev?.source === 'ai+measured') {
     return 'Skin tone ' + st.verdict.replaceAll('-', ' ') + ' (AI); ' + ev.cast.source + ' measure ' + describeCast(ev.cast) + ' (a* ' + signed(ev.cast.a, 1) +
-      ', b* ' + signed(ev.cast.b, 1) + ')' + (wbChanged ? ' — amount set from the measurement.' : ' — too small to change.');
+      ', b* ' + signed(ev.cast.b, 1) + ')' + (wbChanged ? ' — amount averaged with the measurement.' : ' — too small to change.');
   }
   if (!st) return 'White balance checked — nothing to change.';
   if (st.verdict === 'correct') return 'Skin tone judged natural — white balance left as shot.';
@@ -323,21 +324,27 @@ export function withSkinTone(p) {
   }
   const aiShift = st && st.verdict in VERDICT_CAST ? {[tKey]: st.temperatureShift || 0, [iKey]: st.tintShift || 0} : null;
   if (aiShift && (aiShift[tKey] || aiShift[iKey])) {
-    // The model is reliable about direction, noisy about size: where the measurement
-    // agrees on direction it sets the amount; otherwise the model's own number stands.
-    let usedMeasurement = false;
+    // Two independent estimates: where they agree on direction the amount is their average
+    // (neither is trusted to be the bigger, truer one); where they point opposite ways the
+    // model's skin judgment stands and the photo is flagged for a look.
+    let usedMeasurement = false, disagree = false;
     for (const k of [tKey, iKey]) {
       if (!aiShift[k]) continue;
-      const agree = measured && Math.sign(measured[k]) === Math.sign(aiShift[k]) && Math.abs(measured[k]) > Math.abs(aiShift[k]);
-      proposed[k] = p.baseline[k] + (agree ? measured[k] : aiShift[k]);
-      usedMeasurement ||= !!agree;
+      const same = measured && measured[k] && Math.sign(measured[k]) === Math.sign(aiShift[k]);
+      disagree ||= !!(measured && measured[k] && !same);
+      proposed[k] = p.baseline[k] + (same ? (measured[k] + aiShift[k]) / 2 : aiShift[k]);
+      usedMeasurement ||= !!same;
     }
     return {...p, ai: {...p.ai, proposed, skinCast: VERDICT_CAST[st.verdict]},
-      wbEvidence: {source: usedMeasurement ? 'ai+measured' : 'ai', cast}};
+      wbEvidence: {source: usedMeasurement ? 'ai+measured' : 'ai', cast, disagree}};
   }
   if (!cast) return p;
   if (deliberate) return {...p, wbEvidence: {source: 'deliberate', cast}};
-  for (const k of [tKey, iKey]) proposed[k] = p.baseline[k] + measured[k];
+  // The model judged the skin natural. A measurement alone is weaker evidence: tinted
+  // clothing, walls or the photographer's profile can look like a cast. Only a real white
+  // reference may move white balance, and only half-way; anything else is advisory.
+  if (cast.source !== 'white surfaces') return {...p, wbEvidence: {source: 'advisory', cast}};
+  for (const k of [tKey, iKey]) proposed[k] = p.baseline[k] + measured[k] / 2;
   return {...p, ai: {...p.ai, proposed}, wbEvidence: {source: 'measured', cast}};
 }
 
@@ -372,6 +379,9 @@ export function decide({photos: input, scenes, policy, enabled}) {
     for (const p of eligible) {
       const d = out[p.id];
       if (d.allow.wb && (p.ai.skinTone || p.wbEvidence)) d.rationale.push(skinToneLine(p, d));
+      if (d.allow.wb && p.wbEvidence?.disagree) d.warnings.push('The AI and the measured white surfaces disagree on the white-balance direction; check this photo.');
+      if (p.wbEvidence?.source === 'measured' && ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint'].some(k => k in d.changes))
+        d.warnings.push('White balance changed on the measurement alone (the AI judged the skin natural); check this photo.');
       delete d.allow;
       if (!Object.keys(d.changes).length) {
         d.status = 'skipped';
