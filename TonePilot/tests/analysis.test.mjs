@@ -78,9 +78,11 @@ test('tiny faces and undersized previews are not trusted as exposure anchors', (
 test('exposure is matched across a scene from the median of the model\'s judgments', () => {
   n = 0;
   const policy = resolvePolicy('Natural', 'Stronger');
-  // Same couple, same light: one frame 0.6 EV darker. The model judged two frames
-  // correct and one under; the darker frame is brought to the scene, not to a global target.
+  // Same couple, same light, but the camera's exposure drifted (1/400 s instead of 1/250 s):
+  // one frame 0.6 EV darker. The model judged two frames correct and one under; the darker
+  // frame is brought to the scene, not to a global target.
   const ps = [photo({face: 0.12}), photo({face: 0.12}), photo({face: 0.08, ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.5}}})];
+  ps[2].exif.shutterSpeed = '1/400 sec';
   const d = decide({photos: ps, scenes: scene(ps), policy, enabled: ALL});
   assert.equal(d[ps[0].id].status, 'skipped');
   assert.equal(d[ps[1].id].status, 'skipped');
@@ -111,6 +113,7 @@ test('one outlier frame does not switch off scene matching for the others', () =
   const policy = resolvePolicy('Natural', 'Stronger');
   const ps = [photo({face: 0.12}), photo({face: 0.12}), photo({face: 0.08, ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.5}}}),
     photo({face: 0.12, ai: {subjectExposure: 'under', proposed: {Exposure2012: 1.0}}})];   // the odd one out
+  ps[2].exif.shutterSpeed = '1/400 sec';   // its camera exposure drifted
   const d = decide({photos: ps, scenes: scene(ps), policy, enabled: ALL});
   assert.match(d[ps[2].id].rationale[0], /matched to the scene \(3 agreeing frames\)/);
   assert.ok(d[ps[3].id].warnings.some(w => /Judged differently/.test(w)));
@@ -239,4 +242,20 @@ test('strength changes how far TonePilot moves a photo, never how sure it must b
   assert.equal(subtle.minConfidence, balanced.minConfidence);
   assert.equal(stronger.minConfidence, balanced.minConfidence, 'Stronger must not admit photos the evidence is less sure about');
   assert.ok(subtle.caps.Exposure2012 < balanced.caps.Exposure2012 && balanced.caps.Exposure2012 < stronger.caps.Exposure2012);
+});
+
+test('different people under the same light and camera exposure keep their own brightness', () => {
+  n = 0;
+  // Same settings, same light: a darker-skinned guest's face reads ~0.4 EV darker than the bride's
+  // (inside the window where frames count as agreeing, so only the new rule protects it).
+  const light = photo({face: 0.16}), deeper = photo({face: 0.115}), mid = photo({face: 0.15});
+  const ps = [light, deeper, mid];
+  const d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.ok(Math.abs(ev(d, deeper)) < 0.05, 'not brightened toward someone else: ' + ev(d, deeper));
+  // Real exposure drift (shutter ~½ stop faster, face ~0.4 EV darker): that frame is matched.
+  n = 0;
+  const a = photo({face: 0.16}), b = photo({face: 0.15}), drift = photo({face: 0.115});
+  drift.exif.shutterSpeed = '1/350 sec';
+  const d2 = decide({photos: [a, b, drift], scenes: scene([a, b, drift]), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.ok(ev(d2, drift) > 0.25, 'exposure drift is still corrected: ' + ev(d2, drift));
 });

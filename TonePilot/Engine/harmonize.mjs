@@ -10,13 +10,14 @@
 // come from the model's view of THIS scene, and only frame-to-frame consistency of the
 // same light is enforced.
 import {mired, kelvin} from './policy.mjs';
+import {sceneFeatures} from './scenes.mjs';
 import {validateSettings, roundSetting} from './guard.mjs';
 import {measuredCast, correctionForCast, relativeCorrectionForCast, describeCast} from './colour.mjs';
 
 const TONE_KEYS = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'];
 const KEEP_INTENT = new Set(['low-key', 'high-key', 'silhouette']);
 export const LIMITS = Object.freeze({
-  sceneDisagreementEV: 1.0, wbDeadbandMired: 3, wbOutlierMired: 15, wbDriftMired: 8,
+  sceneDisagreementEV: 1.0, sameCameraExposureEV: 1 / 3, wbDeadbandMired: 3, wbOutlierMired: 15, wbDriftMired: 8,
   tintDeadband: 2, toneDeadband: 3, skinHueWarnDeg: 10, minFaceLuma: 0.002, relativeWbAgreement: 8,
   // A face must be big enough in a big enough preview to be measured reliably. Real
   // Lightroom previews can come back smaller than requested (416 px was observed).
@@ -91,6 +92,13 @@ function decideExposure(scene, eligible, policy, out) {
   const anchors = eligible.filter(p => out[p.id].allow.exposure && faceLuma(p) && aiExposureEV(p) !== null)
     .map(p => ({id: p.id, face: faceLuma(p), ev: aiExposureEV(p)}));
   const {target, agreeing, outliers} = sceneExposureTarget(anchors, policy.exposureBiasEV);
+  // Faces differ for two reasons: exposure, and the people themselves. A frame shot with the
+  // same camera exposure as the frames it would be matched to differs because of its subject
+  // (a darker or lighter complexion, a turned face), so it keeps its own assessment.
+  const cameraEV = Object.fromEntries(eligible.map(p => [p.id, sceneFeatures(p).ev]));
+  const referenceEV = median(agreeing.map(id => cameraEV[id]).filter(Number.isFinite));
+  const sameExposure = p => Number.isFinite(cameraEV[p.id]) && Number.isFinite(referenceEV) &&
+    Math.abs(cameraEV[p.id] - referenceEV) < LIMITS.sameCameraExposureEV;
   for (const p of eligible) {
     const d = out[p.id];
     if (!d.allow.exposure) continue;
@@ -100,7 +108,7 @@ function decideExposure(scene, eligible, policy, out) {
     const face = faceLuma(p);
     // Name the look when it, not a correction, is what moves exposure.
     const look = policy.exposureBiasEV ? ', including the ' + policy.look + ' look (' + signed(policy.exposureBiasEV, 1) + ' EV target)' : '';
-    if (target !== null && face && !outliers.includes(p.id)) {
+    if (target !== null && face && !outliers.includes(p.id) && !sameExposure(p)) {
       ev = Math.log2(target / face);
       why = 'Face brightness matched to the scene (' + agreeing.length + ' agreeing frame' + (agreeing.length > 1 ? 's' : '') + look + ')';
     } else if (aiExposureEV(p) !== null) {
