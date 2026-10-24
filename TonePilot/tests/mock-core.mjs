@@ -24,7 +24,8 @@ function applySettings(photo, settings, faults) {
   const s = photo.settings;
   const relative = 'incrementalTemperature' in s;
   if ('WhiteBalance' in settings) {
-    s.whiteBalance = settings.WhiteBalance;
+    const stuck = faults.stickyCustomWB && s.whiteBalance === 'Custom';   // a mode write that does not take
+    s.whiteBalance = stuck ? 'Custom' : settings.WhiteBalance;
     if (relative) { if (settings.WhiteBalance === 'As Shot') { s.incrementalTemperature = 0; s.incrementalTint = 0; } }
     else if (settings.WhiteBalance === 'As Shot' || settings.WhiteBalance === 'Auto') { s.temperature = photo.asShot.temperature; s.tint = photo.asShot.tint; }
     else if (PRESET_K[settings.WhiteBalance]) { s.temperature = PRESET_K[settings.WhiteBalance]; s.tint = 0; }
@@ -87,7 +88,12 @@ export function callTool(name, args, io, {writable, full = false}) {
     for (const key of Object.keys(args.settings)) if (!writable.includes(key)) return io.fail('Unsupported develop setting key: ' + key);
     data.writeCount = (data.writeCount || 0) + 1;
     const n = data.writeCount;
-    const apply = () => { applySettings(p, args.settings, faults); data.writes.push({id: pid, settings: args.settings, n, history: args.history}); };
+    const apply = () => {
+      if (!faults.ignoreWrites) applySettings(p, args.settings, faults);   // ignoreWrites: success reported, nothing changes
+      // syncWritesFrom: from write n on, every write also lands on every other selected photo (Lightroom's Auto Sync).
+      if (faults.syncWritesFrom && n >= faults.syncWritesFrom) for (const other of data.selected) if (other !== pid) applySettings(data.photos[other], args.settings, faults);
+      data.writes.push({id: pid, settings: args.settings, n, history: args.history});
+    };
     if (faults.killBeforeWrite === n) { save(data); return io.killEngine(); }
     if (faults.errorOnWrite === n) { save(data); return io.fail('LrCatalog:withWriteAccessDo: blocked by another write'); }
     if (faults.timeoutWrite?.n === n) {
