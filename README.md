@@ -34,7 +34,7 @@ For portrait, family, wedding and event photographers who already know how to ed
 | Max exposure change (cumulative across runs) | ±0.35 EV | ±0.6 EV | ±1.0 EV |
 | Max white-balance change | ±12 mired (≈ ±350 K daylight) | ±20 mired | ±30 mired |
 | Share of each computed correction applied | 60% | 80% | 100% |
-| Model confidence needed (uncalibrated) | 88% | 82% | 78% |
+| Model confidence needed (uncalibrated, same at every strength) | 82% | 82% | 82% |
 
 **Natural** targets neutral, consistent subjects. **Soft & airy** targets +0.2 EV brighter subjects with lifted shadows and blacks. **True to scene** ignores small corrections and preserves deliberate coloured light. Looks only use controls TonePilot can write: exposure, highlights, shadows, whites, blacks, and (RAW only) temperature and tint.
 
