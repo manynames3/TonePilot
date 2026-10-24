@@ -103,7 +103,7 @@ The skin verdicts were nearly the same everywhere (Sol at all three levels and L
 
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-149 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
+170 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|
