@@ -5,7 +5,7 @@
 For portrait, family, wedding and event photographers who already know how to edit and are tired of fixing the same exposure and white-balance drift frame after frame. You select photos in Lightroom; TonePilot groups them into lighting scenes, proposes small corrections that make each scene consistent, and writes only the edits you approve. Lightroom stays your editor.
 
 > [!IMPORTANT]
-> **Developer preview · v0.6.0 · not for client work yet.** The safety and recovery engine passes 149 automated tests, including killed processes and a dying Lightroom bridge — all against a simulated Lightroom. In real Lightroom, TonePilot has made 16 Develop writes (13 RAW, 3 HEIC), all verified by read-back, including white-balance corrections on RAW, and has compared AI services and models read-only on real photos. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** Time savings are unmeasured. See the [changelog](CHANGELOG.md) and [what has actually been measured](docs/EVIDENCE.md).
+> **Developer preview · v0.6.0 · not for client work yet.** The engine includes automated safety and recovery tests against a simulated Lightroom, including killed processes and a dying bridge. The current test inventory and real-world checks are recorded in the evidence log. In real Lightroom, TonePilot has made 16 Develop writes (13 RAW, 3 HEIC), all verified by read-back, including white-balance corrections on RAW, and has compared AI services and models read-only on real photos. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** Time savings are unmeasured. See the [changelog](CHANGELOG.md) and [what has actually been measured](docs/EVIDENCE.md).
 
 <table>
 <tr>
@@ -16,6 +16,14 @@ For portrait, family, wedding and event photographers who already know how to ed
 </table>
 
 <sub>Screens use synthetic demo data from the test harness, not real photographs.</sub>
+
+## Recent engineering work
+
+- **Scene-aware exposure and white balance.** The latest rules refine exposure sharing between comparable frames, combine measured and model-based colour evidence, and flag disagreement for review. Exposure and white balance are the default correction scope.
+- **A consistent AI interface.** Provider selection, pinned model settings and recorded assessments support repeatable comparisons. Credentials stay separate from the Lightroom bridge.
+- **Quality checks with controls.** Read-only comparisons can use the photographer's finished edits. An automated judge uses approximate renders, identical-image controls and deliberately wrong edits; its current noise does not establish editing quality or superiority.
+
+See the [measured results and limits](docs/EVIDENCE.md#new-judgment-rules-on-real-photos-october-24-2026-read-only). Recovery screenshots below use synthetic sessions; restoration on real photos remains unverified.
 
 ## What it does
 
