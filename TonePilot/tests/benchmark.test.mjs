@@ -191,3 +191,13 @@ test('owner-review: every photo is listed, ratings come from stdin, resume keeps
     assert.notEqual(run(['start', join(temp, 'missing'), '--out', out]).status, 0);
   } finally { rmSync(temp, {recursive: true, force: true}); }
 });
+
+test('auto-judge renders the session\'s change and maps the judge\'s A/B answer back without bias', async () => {
+  const {renderArgs, verdictFor} = await import('../Benchmarks/auto-judge.mjs');
+  const p = {baseline: {Exposure2012: 0.2, Temperature: 4800, Tint: 10}, changes: {Exposure2012: 0.5, Tint: 6}};
+  assert.deepEqual(renderArgs(p), {ev: 0.3, fromK: 4800, toK: 4800, tint: -4});
+  assert.deepEqual(renderArgs({baseline: p.baseline, changes: {}}), {ev: 0, fromK: 4800, toK: 4800, tint: 0});
+  assert.equal(verdictFor('A', 'A'), 'better');
+  assert.equal(verdictFor('B', 'A'), 'worse');
+  assert.equal(verdictFor('same', 'B'), 'same');
+});
