@@ -23,7 +23,7 @@ For portrait, family, wedding and event photographers who already know how to ed
 - **A consistent AI interface.** Provider selection, pinned model settings and recorded assessments support repeatable comparisons. Credentials stay separate from the Lightroom bridge.
 - **Quality checks with controls.** Read-only comparisons can use the photographer's finished edits. An automated judge uses approximate renders, identical-image controls and deliberately wrong edits; its current noise does not establish editing quality or superiority.
 
-See the [measured results and limits](docs/EVIDENCE.md#new-judgment-rules-on-real-photos-october-24-2026-read-only). Recovery screenshots below use synthetic sessions; restoration on real photos remains unverified.
+See the [measured results and limits](docs/EVIDENCE.md#new-judgment-rules-on-real-photos-october-24-2026-read-only). Recovery captures use synthetic sessions; restoration on real photos remains unverified.
 
 ## What it does
 
