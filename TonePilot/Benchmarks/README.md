@@ -66,3 +66,13 @@ Read-only. Lightroom has one catalog open at a time, so it runs in two steps:
    `node TonePilot/Benchmarks/vs-photographer.mjs compare ~/tonepilot-reference.json <session-dir>`.
 
 Per setting it reports how far the unedited photo was from your value, how far TonePilot's plan is, how many photos it moved closer or further, wrong-direction moves, and changes where you made none. Your edit may also use profiles, curves or masks, so this measures direction and distance, not taste. The reference file holds filenames: keep it private and delete it afterwards.
+
+## Automated quality proxy — `auto-judge.mjs`
+
+Read-only and unattended. For each photo a session would change, it renders an approximate "after" of the exposure and RAW white-balance change on the Mac (`render.swift`, Core Image — not Lightroom's renderer) and asks a judge model from a different family than the assessor to pick the more natural of before/after, shown in random order, or "same". Every photo also gets two controls: an identical pair (should be "same") and a deliberately wrong edit (+1 EV, +900 K, +12 tint — should lose).
+
+```bash
+node TonePilot/Benchmarks/auto-judge.mjs <session-dir> --judge bedrock:global.anthropic.claude-sonnet-4-6 --out judge.json
+```
+
+First real run (10 RAW photos, Claude Sonnet 4.6 on Bedrock): the judge rejected 10/10 wrong edits but called identical pairs "same" only 6/10, so it detects gross errors and cannot resolve TonePilot's small corrections (5 better / 3 worse was within its noise). Use it as a gross-error alarm, not a quality score. The output names photos and quotes the judge's descriptions: keep it private.

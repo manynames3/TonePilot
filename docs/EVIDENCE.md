@@ -101,9 +101,15 @@ All four judged the skin magenta (the measured white surfaces agree). *At Anthro
 
 The skin verdicts were nearly the same everywhere (Sol at all three levels and Luna at extra high and max gave identical verdict counts; under/ok/over judgments agreed 90–100%). The difference is confidence: Luna reports lower confidence, so the Balanced threshold (tuned on Codex) flags 35–50% of its photos instead of editing them. Agreement and repeatability are not quality; whether these edits are right needs the blind evaluation.
 
+## New judgment rules on real photos (October 24, 2026, read-only)
+
+The 0.6+ rules (exposure + white balance by default, one confidence bar, weighed white-balance evidence, same-exposure scene sharing) on the same 10 RAW photos, GPT-6.1-Sol, two runs: decisions and settings identical across runs (100%); 16 of 20 assessments proposed edits — all white balance, 2 also exposure; 4 left unchanged.
+
+**Automated judge** (`auto-judge.mjs`, Claude Sonnet 4.6 on Bedrock, approximate Core Image render): deliberately wrong edits lost 10/10; identical pairs were called "same" only 6/10. TonePilot's 8 changed photos: 5 better, 0 same, 3 worse — within the judge's demonstrated noise, so no quality conclusion. 7 of the 8 changes pulled tint toward green by 6–9 steps: either a real magenta cast in this camera/profile or a systematic bias; unresolved without the photographer's review.
+
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-170 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
+171 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|
