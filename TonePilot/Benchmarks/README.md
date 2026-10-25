@@ -5,6 +5,7 @@ These tools summarize evidence; none of them can create it. There are still **no
 | Tool | Measures | Needs |
 |---|---|---|
 | `evaluate.mjs` | Blind acceptance, major regressions, review time vs any number of baselines; 95% Wilson intervals; paired McNemar test; breakdown by lighting and skin group; confidence calibration and an evidence-based threshold | Independently rated JSON (protocol in [docs/VALIDATION.md](../../docs/VALIDATION.md), gate G3) |
+| `owner-review.mjs` | The owner's own better/same/worse rating of exposure and white balance per photo (owner pilot, not validation) | A session folder |
 | `repeatability.mjs` | How often identical analyses of the same photos agree | Two or more session folders |
 | `scale.mjs` | Engine journaling, folding, grouping and planning cost at 20/100/500 photos; engine overhead end to end | Nothing (synthetic) |
 
@@ -26,9 +27,21 @@ These tools summarize evidence; none of them can create it. There are still **no
 }
 ```
 
-`"validated": true` requires at least 100 photos and the *interval*, not the point estimate, to clear each target: acceptance ≥ 85%, major regressions < 2%, ≥ 40% less review time than every baseline, and a significant paired advantage over at least one. Fewer than 100 photos exits with code 3.
+`"validated": true` requires at least 100 photos and the *interval*, not the point estimate, to clear each target: acceptance ≥ 85%, major regressions < 2%, ≥ 40% less review time than every baseline, a significant paired advantage over at least one, and every skin group (≥ 2 groups, ≥ 30 photos each) with an acceptance lower bound ≥ 75%. Zero regressions need ≥ 189 photos to bound the rate under 2%. Fewer than 100 photos exits with code 3; duplicate ids or missing scores exit with code 1.
 
 Keep the evaluation set separate from anything used to tune thresholds, and keep client photos private.
+
+## Owner pilot — `owner-review.mjs`
+
+Read-only: it reads a session journal and never talks to Lightroom. You rate TonePilot's result on your own session while looking at the photos in Lightroom:
+
+```bash
+node TonePilot/Benchmarks/owner-review.mjs start <session-dir> --out ~/tonepilot-review.json   # creates, or resumes
+node TonePilot/Benchmarks/owner-review.mjs rate ~/tonepilot-review.json
+node TonePilot/Benchmarks/owner-review.mjs report ~/tonepilot-review.json
+```
+
+Every photo is listed, including unchanged, flagged and unsupported ones, with TonePilot's state and changes. For each you answer exposure and white balance — better / same / worse / na (b/s/w/n) — and an optional short reason. Each answer is saved at once, so you can stop and run `rate` again later. `report` counts each answer separately for exposure and white balance and lists the photos rated worse, with reasons. It is one photographer, not blind: an **owner pilot, not validation**. The file (0600) holds filenames and your notes: keep it private.
 
 ## Choosing the AI provider and model — `compare-providers.mjs`
 

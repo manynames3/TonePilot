@@ -4,7 +4,7 @@ TonePilot moves forward only when a gate passes with real evidence. Status as of
 
 | Gate | What it proves | Status |
 |---|---|---|
-| G0 | Safety logic under failure, simulated | **Passed** — 149 automated tests, mutation-checked |
+| G0 | Safety logic under failure, simulated | **Passed** — 170 automated tests, mutation-checked |
 | G1 | Real writes, verification and restore on a disposable catalog | **Not run** — needs the photographer's go-ahead and a sandbox catalog |
 | G2 | Real read-only analysis on representative RAW galleries | **Partial** — 5 HEIC photos, one scene; a few single RAW photos; no RAW gallery yet |
 | G3 | Photographic quality, blind | **Not run** — needs ≥ 100 held-out photos and independent raters |
@@ -23,10 +23,17 @@ Requires explicit authorization. Never run on client work.
    node TonePilot/tests/live/sandbox-cycle.mjs --i-have-a-backup
    ```
 
-3. The script refuses unless every selected photo's file is inside the sandbox folder. It then: runs the live doctor → analyzes (Subtle) → applies → independently re-reads every value → restores → checks every exposed Develop field is byte-identical to the original → analyzes again, SIGKILLs the engine immediately after its first write intent → reconciles → restores → re-checks originals. A JSON report is written.
-4. Manually, in Lightroom: confirm each TonePilot write appears in the History panel, then edit one restored-able photo by hand and confirm TonePilot refuses to restore it.
+3. The script refuses unless every selected photo's file is inside the sandbox folder. Then, stopping at the first FAIL:
+   - live doctor (Lightroom/plug-in checks count as proven by the script's own live reads) → analyze (Subtle) → apply; every approved edit must be verified;
+   - independent read-back: at least one real nonzero Exposure2012 write and, when any photo is RAW, at least one real Temperature/Tint write (counts in the report); RAW white-balance writes must show WhiteBalance "Custom";
+   - **simulated photographer edit**: one direct `set_develop_settings` on one sandbox photo changes its Exposure2012; restore must report that photo as a conflict and leave the edit untouched, while every other photo returns to its original WB mode, Temperature/Tint and byte-identical Develop fields;
+   - the photographer puts TonePilot's value back → restore → every photo byte-identical to the original, WhiteBalance included;
+   - analyze again, SIGKILL the engine right after its first write intent → reconcile (waits while Lightroom settles) → restore → no photo left unconfirmed or changed, originals intact.
 
-**Pass:** every step PASS, zero drift, History shows only TonePilot's own steps.
+   The JSON report lists the bridge kind and version, the Lightroom version when the bridge reports it, the Develop fields observed and every step's PASS/FAIL; overall PASS only if all pass. Pick photos that need both exposure and white-balance correction (e.g. tungsten-lit RAWs), or the write-count step fails. `tests/sandbox-cycle.test.mjs` runs the script against the mock Lightroom.
+4. Manually, in Lightroom: confirm each TonePilot write appears in the History panel.
+
+**Pass:** overall PASS, zero drift, History shows only TonePilot's own steps and the two simulated edits.
 
 ## G2 — real read-only analysis
 
@@ -41,6 +48,10 @@ At least three real RAW galleries (different bodies, including one wedding with 
 5. `node TonePilot/Benchmarks/evaluate.mjs scored.json`
 
 **Pass ("validated")**: ≥ 100 photos; lower 95% bound of acceptance ≥ 85%; upper bound of major regressions < 2%; ≥ 40% less time than every baseline; a statistically significant paired advantage (McNemar p < 0.05) over at least one baseline; no skin group materially worse than the others. The tool refuses to call smaller samples validated.
+
+- **Skin groups** (gate `everySkinGroupAssessedAndAtLeast75`): at least two recorded groups, each with ≥ 30 photos and an acceptance lower 95% bound ≥ 75% (10 points under the target), so a strong average can never hide a weak group. A group under 30 photos, or photos with no skin group recorded (`unspecified`), is reported as `insufficient` and blocks validation rather than passing silently; a group below the floor is `below-floor`. In practice a 30-photo group needs ≥ 28 accepted, a 50-photo group ≥ 44.
+- **Regressions:** with zero major regressions, the Wilson upper bound first drops below 2% at **189 photos** (0/189 → 1.992%; 0/188 → 2.002%). So the 100-photo minimum cannot pass the regression gate; plan for ≥ 189, more if any regression is expected.
+- **Input errors** (exit 1, nothing is scored): duplicate photo ids, a photo without an id, or a photo missing a score for any method that appears anywhere in the file.
 
 Calibration: the same file yields a reliability table and the lowest model-confidence threshold whose acceptance lower bound clears 85%. Replace the strength thresholds in `policy.mjs` with calibrated ones only from this output.
 

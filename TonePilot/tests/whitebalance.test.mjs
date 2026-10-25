@@ -165,10 +165,20 @@ const castPhoto = (whites, ai = {}) => ({id: 'p', state: 'baselined',
 const decideStrong = p => decide({photos: [p], scenes: [{id: 'S1', photos: ['p'], flash: false}],
   policy: resolvePolicy('Natural', 'Stronger'), enabled: {wb: true, exposure: true, tone: false}}).p;
 
-test('a measured magenta/cool cast is corrected even when the AI calls the skin natural', () => {
+test('when the AI calls skin natural, a cast on white surfaces is corrected only half-way, and flagged for a look', () => {
   const d = decideStrong(castPhoto({a: 3.4, b: -2.66}));
-  assert.ok(d.changes.Tint <= 3, 'tint pulled from 12 toward green: ' + d.changes.Tint);
-  assert.match(d.rationale.join(' '), /Skin judged natural by the AI, but white surfaces measure magenta and cool \(a\* \+3\.4, b\* -2\.7\) — corrected from the measurement\./);
+  assert.ok(d.changes.Tint >= 5 && d.changes.Tint <= 9, 'half of the measured pull toward green (12 → ~7): ' + d.changes.Tint);
+  assert.match(d.rationale.join(' '), /Skin judged natural by the AI, but white surfaces measure magenta and cool \(a\* \+3\.4, b\* -2\.7\) — corrected half-way/);
+  assert.ok(d.warnings.some(w => /measurement alone/.test(w)), 'the photographer is told to check');
+});
+
+test('a cast measured only on general neutral areas never changes white balance on its own', () => {
+  const p = castPhoto({a: 3.4, b: -2.66});
+  p.metrics.whites.fraction = 0.005;                       // no real white reference
+  p.metrics.neutral = {a: 3.4, b: -2.66, fraction: 0.5};   // tinted walls, a profile's rendering…
+  const d = decideStrong(p);
+  assert.ok(!('Tint' in d.changes) && !('Temperature' in d.changes), JSON.stringify(d.changes));
+  assert.match(d.rationale.join(' '), /neutral areas measure magenta and cool .* advisory only/);
 });
 
 test('deliberate warm light and tiny casts are left alone, with the reason shown', () => {
@@ -188,12 +198,13 @@ test('HEIC casts are corrected in relative steps', () => {
   assert.ok(!('Tint' in d.changes));
 });
 
-test('when the AI and the measurement agree on direction, the measurement sets the amount', () => {
+test('when the AI and the measurement agree on direction, the amount is their average; when they disagree, the photo is flagged', () => {
   const d = decideStrong(castPhoto({a: 2.6, b: -1.05}, {skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: -3, note: ''}}));
-  assert.ok(d.changes.Tint <= 12 - 6, 'measured ≈ −7.6, not the AI\'s −3: ' + d.changes.Tint);
-  assert.match(d.rationale.join(' '), /too magenta \(AI\); white surfaces measure magenta and cool .* amount set from the measurement/);
+  assert.ok(d.changes.Tint >= 6 && d.changes.Tint <= 7, 'average of measured ≈ −7.6 and the AI\'s −3 (12 → ~6.7): ' + d.changes.Tint);
+  assert.match(d.rationale.join(' '), /too magenta \(AI\); white surfaces measure magenta and cool .* amount averaged with the measurement/);
   const disagree = decideStrong(castPhoto({a: -2.6, b: 0}, {skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: -3, note: ''}}));
   assert.equal(disagree.changes.Tint, 9, 'measurement says green: the AI\'s own −3 stands');
+  assert.ok(disagree.warnings.some(w => /disagree/.test(w)), JSON.stringify(disagree.warnings));
 });
 
 test('any white-balance write also selects Custom, as Lightroom\'s own sliders do', () => {
@@ -213,4 +224,24 @@ test('any white-balance write also selects Custom, as Lightroom\'s own sliders d
     assert.deepEqual([r.whiteBalance, r.tint, r.temperature], ['As Shot', 4, 5200]);
     assert.equal(x.show(dir).status, 'restored');
   } finally { x.cleanup(); }
+});
+
+test('a half-way change made on the measurement alone stays on that photo; neighbours are not synced to it', () => {
+  const a = {...castPhoto({a: 3.4, b: -2.66}), id: 'a'};
+  const b = {...castPhoto({a: 0, b: 0}), id: 'b'}, c = {...castPhoto({a: 0, b: 0}), id: 'c'};
+  b.metrics = {...b.metrics, whites: {a: 0, b: 0, fraction: 0.005}, neutral: {a: 3.4, b: -2.66, fraction: 0.5}};
+  const d = decide({photos: [a, b, c], scenes: [{id: 'S1', photos: ['a', 'b', 'c'], flash: false}],
+    policy: resolvePolicy('Natural', 'Stronger'), enabled: {wb: true, exposure: true, tone: false}});
+  assert.ok('Tint' in d.a.changes, 'the measured photo is corrected half-way');
+  assert.ok(!('Tint' in d.b.changes) && !('Tint' in d.c.changes), JSON.stringify([d.b.changes, d.c.changes]));
+});
+
+test('the disagree warning ignores negligible measured components and names the real source', () => {
+  // Model: cooler skin (raise Kelvin) and less magenta. Measurement: clearly magenta; its temperature component
+  // (under 3 mired here) is too small to agree or disagree with anything.
+  const d = decideStrong(castPhoto({a: 3.0, b: -2.1}, {skinTone: {verdict: 'too-cool-and-magenta', temperatureShift: 300, tintShift: -3, note: ''}}));   // +300 K vs a −50 K (2 mired) measured component
+  assert.ok(!d.warnings.some(w => /disagree/.test(w)), JSON.stringify(d.warnings));
+  const p = castPhoto({a: -3, b: 0}, {skinTone: {verdict: 'too-magenta', temperatureShift: 0, tintShift: -3, note: ''}});
+  p.metrics.whites.fraction = 0.005; p.metrics.neutral = {a: -3, b: 0, fraction: 0.5};
+  assert.ok(decideStrong(p).warnings.some(w => /measured neutral areas disagree/.test(w)));
 });

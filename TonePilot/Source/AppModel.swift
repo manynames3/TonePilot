@@ -38,7 +38,7 @@ final class AppModel: ObservableObject {
     @Published var strength = defaults.string(forKey: "strength") ?? "Balanced" { didSet { Self.defaults.set(strength, forKey: "strength") } }
     @Published var fixWhiteBalance = defaults.object(forKey: "fixWhiteBalance") as? Bool ?? true { didSet { Self.defaults.set(fixWhiteBalance, forKey: "fixWhiteBalance") } }
     @Published var fixExposure = defaults.object(forKey: "fixExposure") as? Bool ?? true { didSet { Self.defaults.set(fixExposure, forKey: "fixExposure") } }
-    @Published var fixTone = defaults.object(forKey: "fixTone") as? Bool ?? true { didSet { Self.defaults.set(fixTone, forKey: "fixTone") } }
+    @Published var fixTone = defaults.object(forKey: "fixTone") as? Bool ?? false { didSet { Self.defaults.set(fixTone, forKey: "fixTone") } }
 
     // Long operations own `runner` (Stop terminates it). Read-only queries use a fresh
     // runner each time so browsing sessions can never redirect Stop to the wrong process.

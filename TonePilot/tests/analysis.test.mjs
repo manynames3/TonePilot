@@ -78,9 +78,11 @@ test('tiny faces and undersized previews are not trusted as exposure anchors', (
 test('exposure is matched across a scene from the median of the model\'s judgments', () => {
   n = 0;
   const policy = resolvePolicy('Natural', 'Stronger');
-  // Same couple, same light: one frame 0.6 EV darker. The model judged two frames
-  // correct and one under; the darker frame is brought to the scene, not to a global target.
+  // Same couple, same light, but the camera's exposure drifted (1/400 s instead of 1/250 s):
+  // one frame 0.6 EV darker. The model judged two frames correct and one under; the darker
+  // frame is brought to the scene, not to a global target.
   const ps = [photo({face: 0.12}), photo({face: 0.12}), photo({face: 0.08, ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.5}}})];
+  ps[2].exif.shutterSpeed = '1/400 sec';
   const d = decide({photos: ps, scenes: scene(ps), policy, enabled: ALL});
   assert.equal(d[ps[0].id].status, 'skipped');
   assert.equal(d[ps[1].id].status, 'skipped');
@@ -111,21 +113,24 @@ test('one outlier frame does not switch off scene matching for the others', () =
   const policy = resolvePolicy('Natural', 'Stronger');
   const ps = [photo({face: 0.12}), photo({face: 0.12}), photo({face: 0.08, ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.5}}}),
     photo({face: 0.12, ai: {subjectExposure: 'under', proposed: {Exposure2012: 1.0}}})];   // the odd one out
+  ps[2].exif.shutterSpeed = '1/400 sec';   // its camera exposure drifted
   const d = decide({photos: ps, scenes: scene(ps), policy, enabled: ALL});
   assert.match(d[ps[2].id].rationale[0], /matched to the scene \(3 agreeing frames\)/);
   assert.ok(d[ps[3].id].warnings.some(w => /Judged differently/.test(w)));
   assert.ok(Math.abs(ev(d, ps[3]) - 1.0) < 0.011, 'outlier keeps its own assessment');
 });
 
-test('confidence thresholds differ by strength; skipped and uncertain photos are never edited', () => {
+test('one confidence bar at every strength; skipped and uncertain photos are never edited', () => {
   n = 0;
   const ps = [photo({ai: {confidence: 0.85, subjectExposure: 'under', proposed: {Exposure2012: 0.5}}}),
-    photo({ai: {skip: true, reason: 'Intentional silhouette'}})];
-  const sub = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Subtle'), enabled: ALL});
-  const str = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
-  assert.equal(sub[ps[0].id].status, 'flagged');
-  assert.equal(str[ps[0].id].status, 'proposed');
-  assert.equal(sub[ps[1].id].status, 'skipped'); assert.deepEqual(sub[ps[1].id].changes, {});
+    photo({ai: {skip: true, reason: 'Intentional silhouette'}}),
+    photo({ai: {confidence: 0.79, subjectExposure: 'under', proposed: {Exposure2012: 0.5}}})];
+  for (const strength of ['Subtle', 'Balanced', 'Stronger']) {
+    const d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', strength), enabled: ALL});
+    assert.equal(d[ps[0].id].status, 'proposed', strength);
+    assert.equal(d[ps[1].id].status, 'skipped'); assert.deepEqual(d[ps[1].id].changes, {});
+    assert.equal(d[ps[2].id].status, 'flagged', strength + ' must not lower the bar');
+  }
 });
 
 test('highlight protection limits brightening when it would clip detail', () => {
@@ -230,4 +235,54 @@ test('oversized Lightroom previews are scaled down before measurement and the mo
     assert.equal(savePreview(small, path.join(dir, 'b.jpg')), small);   // never upscaled
     assert.equal(jpegSize(Buffer.from('not a jpeg')), null);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('strength changes how far TonePilot moves a photo, never how sure it must be', () => {
+  const [subtle, balanced, stronger] = ['Subtle', 'Balanced', 'Stronger'].map(s => resolvePolicy('Natural', s));
+  assert.equal(subtle.minConfidence, balanced.minConfidence);
+  assert.equal(stronger.minConfidence, balanced.minConfidence, 'Stronger must not admit photos the evidence is less sure about');
+  assert.ok(subtle.caps.Exposure2012 < balanced.caps.Exposure2012 && balanced.caps.Exposure2012 < stronger.caps.Exposure2012);
+});
+
+test('different people under the same light and camera exposure keep their own brightness', () => {
+  n = 0;
+  // Same settings, same light: a darker-skinned guest's face reads ~0.4 EV darker than the bride's
+  // (inside the window where frames count as agreeing, so only the new rule protects it).
+  const light = photo({face: 0.16}), deeper = photo({face: 0.115}), mid = photo({face: 0.15});
+  const ps = [light, deeper, mid];
+  const d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.ok(Math.abs(ev(d, deeper)) < 0.05, 'not brightened toward someone else: ' + ev(d, deeper));
+  // Real exposure drift (shutter ~½ stop faster, face ~0.4 EV darker): that frame is matched.
+  n = 0;
+  const a = photo({face: 0.16}), b = photo({face: 0.15}), drift = photo({face: 0.115});
+  drift.exif.shutterSpeed = '1/350 sec';
+  const d2 = decide({photos: [a, b, drift], scenes: scene([a, b, drift]), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.ok(ev(d2, drift) > 0.25, 'exposure drift is still corrected: ' + ev(d2, drift));
+});
+
+test('same camera exposure: the scene\'s shared judgment is used, so one frame\'s model noise is not applied', () => {
+  n = 0;
+  const ps = [photo({face: 0.12}), photo({face: 0.12}), photo({face: 0.12, ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.4}}})];
+  const d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.ok(Math.abs(ev(d, ps[2])) < 0.05, 'noise on one identical frame is absorbed: ' + ev(d, ps[2]));
+  // A frame already adjusted in Lightroom (+0.5 EV) is no longer at the same exposure as its neighbours.
+  n = 0;
+  const edited = [photo({face: 0.12}), photo({face: 0.12}), photo({face: 0.165, baseline: {Exposure2012: 0.5}})];   // ~0.46 EV brighter: inside the agreeing window
+  const d2 = decide({photos: edited, scenes: scene(edited), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.ok(ev(d2, edited[2]) < -0.4, 'matched back toward the scene: ' + ev(d2, edited[2]));
+});
+
+test('flash frames are matched by face brightness: flash output varies even when camera settings do not', () => {
+  n = 0;
+  const ps = [photo({face: 0.12, flash: 'Fired'}), photo({face: 0.12, flash: 'Fired'}), photo({face: 0.09, flash: 'Fired'})];
+  const d = decide({photos: ps, scenes: [{id: 'S1', photos: ps.map(p => p.id), reference: ps[0].id, flash: true}],
+    policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.ok(Math.abs(ev(d, ps[2]) - Math.log2(0.12 / 0.09)) < 0.03, 'darker flash frame lifted by the measured gap: ' + ev(d, ps[2]));
+});
+
+test('rejections name the single evidence threshold', () => {
+  n = 0;
+  const p = photo({ai: {confidence: 0.79}});
+  const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.match(d[p.id].reason, /^Below the evidence threshold \(82%; model reported 79%, uncalibrated\)/);
 });

@@ -2,6 +2,18 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
+## Unreleased
+
+Judgment changes from an independent review (ChatGPT, then a code review), all test-first:
+
+- **Exposure + white balance by default.** Tone sliders are opt-in, so the model's tone proposals never reach writes unless asked for.
+- **One confidence bar at every strength** (82%, provisional until calibrated). Stronger used to admit photos the model was less sure about.
+- **White balance evidence is weighed, not maximised.** Agreeing AI and measurement amounts are averaged (the larger used to win); opposite directions keep the AI's skin judgment and flag the photo; a measured component too small to act on can't agree or disagree. When the AI calls skin natural, a cast on real white surfaces is corrected half-way with a "check this photo" note and never spreads to the rest of the scene; a cast seen only on general neutral areas is advisory.
+- **Different people keep their own brightness.** Frames at the same effective exposure (camera settings plus the photo's Lightroom exposure) in the same light share the scene's judgment instead of being pulled to one face; exposure drift and flash frames are still matched by face.
+- **Benchmark integrity.** "Validated" now needs every skin group (≥ 30 photos) to clear a 75% acceptance lower bound; duplicate or incomplete evidence is rejected; the regression gate needs ≥ 189 zero-regression photos (documented). New `owner-review.mjs` for better/same/worse owner ratings, labelled "owner pilot — not validated".
+- **G1 sandbox cycle can't pass by accident.** It requires real exposure and white-balance writes, Custom mode after apply and the original mode after restore, a scripted photographer edit that restore must refuse, crash recovery, the tested bridge version, and a folder named TonePilot-Sandbox (symlinks resolved).
+- **Codex usage limits** are reported in plain words with the reset time.
+
 ## 0.6.0 — developer preview (October 23, 2026)
 
 - **Choose your AI service in Setup.** ChatGPT subscription (Codex CLI, default), Claude on Amazon Bedrock (region, optional AWS profile, optional Bedrock API key) or Claude through the Anthropic API, with Opus 5.5 (default), Sonnet 5.5 or Haiku 5.5. API keys live only in the macOS Keychain. Setup checks only the chosen service and, for Claude, makes one tiny live call; the app bundles the pinned Claude SDKs. Tested against a local fake of the API only: no real Bedrock or Anthropic call has been made yet.

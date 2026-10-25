@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {answerFor, photoIdOf, recordSecrets} from './mock-answers.mjs';
 recordSecrets('codex');
 const args = process.argv;
+if (args[2] === 'login') { console.log('Logged in using ChatGPT'); process.exit(0); }   // doctor's sign-in check
 const arg = n => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
 const answer = arg('--output-last-message'), schemaFile = arg('--output-schema');
 const images = args.flatMap((a, i) => (a === '--image' ? [args[i + 1]] : []));
