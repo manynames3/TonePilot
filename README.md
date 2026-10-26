@@ -42,7 +42,7 @@ See the [measured results and limits](docs/EVIDENCE.md#new-judgment-rules-on-rea
 | Max exposure change (cumulative across runs) | ±0.35 EV | ±0.6 EV | ±1.0 EV |
 | Max white-balance change | ±12 mired (≈ ±350 K daylight) | ±20 mired | ±30 mired |
 | Share of each computed correction applied | 60% | 80% | 100% |
-| Model confidence needed (uncalibrated, same at every strength) | 82% | 82% | 82% |
+| Model confidence needed (uncalibrated, same at every strength) | 82%, or 70% when the on-device measurements independently confirm the correction | same | same |
 
 **Natural** targets neutral, consistent subjects. **Soft & airy** targets +0.2 EV brighter subjects with lifted shadows and blacks. **True to scene** ignores small corrections and preserves deliberate coloured light. Looks only use controls TonePilot can write: exposure, highlights, shadows, whites, blacks, and (RAW only) temperature and tint.
 

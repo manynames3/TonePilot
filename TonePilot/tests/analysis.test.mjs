@@ -286,3 +286,28 @@ test('rejections name the single evidence threshold', () => {
   const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
   assert.match(d[p.id].reason, /^Below the evidence threshold \(82%; model reported 79%, uncalibrated\)/);
 });
+
+test('below the confidence bar, an "under" verdict goes ahead only for a face the measurement shows is very dark', () => {
+  n = 0;
+  const dark = photo({face: 0.03, ai: {confidence: 0.78, subjectExposure: 'under', proposed: {Exposure2012: 0.5}}});
+  const dim = photo({face: 0.09, ai: {confidence: 0.78, subjectExposure: 'under', proposed: {Exposure2012: 0.5}}});
+  const low = photo({face: 0.03, ai: {confidence: 0.62, subjectExposure: 'under', proposed: {Exposure2012: 0.5}}});
+  const policy = resolvePolicy('Natural', 'Balanced');
+  const d = decide({photos: [dark], scenes: scene([dark]), policy, enabled: ALL});
+  assert.equal(d[dark.id].status, 'proposed', d[dark.id].reason);
+  assert.ok(ev(d, dark) > 0.2, 'brightened: ' + ev(d, dark));
+  assert.match(d[dark.id].rationale.join(' '), /78%/);
+  const d2 = decide({photos: [dim], scenes: scene([dim]), policy, enabled: ALL});
+  assert.equal(d2[dim.id].status, 'flagged');
+  assert.match(d2[dim.id].reason, /measurements? (do|does)n.t confirm|not confirmed/i);
+  assert.equal(decide({photos: [low], scenes: scene([low]), policy, enabled: ALL})[low.id].status, 'flagged');
+});
+
+test('the prompt makes skin the reference and keeps background colour out of the verdict and the confidence', () => {
+  const p = photo({});
+  const text = buildPrompt({photo: p, scene: {id: 'S1', photos: [p.id], flash: false}, policy: resolvePolicy('Natural', 'Balanced'), enabled: {wb: true, exposure: true, tone: false}});
+  assert.match(text, /background/i);
+  assert.match(text, /never.*(lower|reduce).*confidence|confidence.*not.*(lowered|reduced)/is);
+  assert.doesNotMatch(JSON.stringify(ASSESSMENT_SCHEMA.properties.skinTone.properties.verdict.enum), /mixed-light/);
+  assert.equal(normalizeAssessment({confidence: 0.9, skinTone: {verdict: 'mixed-light'}}).skinTone.verdict, 'mixed-light', 'old sessions still read');
+});

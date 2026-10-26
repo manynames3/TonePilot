@@ -4,7 +4,7 @@
 // assessment the other providers return, so normalizeAssessment and the decision logic are
 // unchanged. No free-form slider values: exposure comes from TonePilot's face measurement,
 // and tone sliders are not proposed. Global fetch only, no dependencies.
-import {SKIN_VERDICTS, SUBJECT_EXPOSURE, INTENTS, ILLUMINANTS} from './ai.mjs';
+import {OFFERED_SKIN_VERDICTS, SUBJECT_EXPOSURE, INTENTS, ILLUMINANTS} from './ai.mjs';
 
 export const DECISIONS_MODEL = 'gpt-6-luna';
 const LOCAL = ['127.0.0.1', 'localhost', '[::1]'];
@@ -22,7 +22,7 @@ const scale = (name, instructions, values, unit) => ({type: 'score', name, instr
 export function decisionQuestions(wbMode) {
   const levels = LEVELS[wbMode === 'relative' ? 'relative' : 'kelvin'], unit = wbMode === 'relative' ? '' : ' K';
   return [
-    choice('skin', 'Is the skin colour of the main people natural for them under this light? If not, how is it off?', SKIN_VERDICTS),
+    choice('skin', 'Is the skin colour of the main people natural for them? If not, how is it off? Judge the skin only, whatever colour the background is.', OFFERED_SKIN_VERDICTS),
     choice('exposure', 'Is the main subject (faces first) exposed correctly?', SUBJECT_EXPOSURE),
     choice('intent', 'Is the look deliberate (low-key, high-key, silhouette, creative colour)? none if not.', INTENTS),
     choice('light', 'What light falls on the subject?', ILLUMINANTS),

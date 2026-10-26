@@ -107,6 +107,10 @@ The 0.6+ rules (exposure + white balance by default, one confidence bar, weighed
 
 **Automated judge** (`auto-judge.mjs`, Claude Sonnet 4.6 on Bedrock, approximate Core Image render): deliberately wrong edits lost 10/10; identical pairs were called "same" only 6/10. TonePilot's 8 changed photos: 5 better, 0 same, 3 worse — within the judge's demonstrated noise, so no quality conclusion. 7 of the 8 changes pulled tint toward green by 6–9 steps: either a real magenta cast in this camera/profile or a systematic bias; unresolved without the photographer's review.
 
+## Fewer reviews, skin first (October 26, 2026, read-only)
+
+The same 20 RAW photos (one indoor family shoot, window and mixed light), GPT-6.1-Sol, analyzed before and after the evidence ladder, the skin-first prompt and the rounding fix. Held back for review: 6 → 1; proposed edits: 12 → 16; skipped 2 → 3. Of the 6 originally held back, 2 were a rounding bug (84% confident, blocked by the white-balance limit at ~2900–3100 K), 3 were 77–80% confident with a cooler background (the model hedged, and "mixed light" switched white balance off), and 1 stayed held back (78%, white surfaces too small to confirm). The model's own confidence did not rise (median 0.84 → 0.83); the gain comes from corroboration, the bug fix and skin-first logic. Whether the extra corrections are good is not measured.
+
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
 171 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.

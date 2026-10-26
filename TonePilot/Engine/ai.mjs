@@ -15,6 +15,9 @@ export const SKIN_CASTS = ['none', 'green', 'magenta', 'too-warm', 'too-cool', '
 export const SUBJECT_EXPOSURE = ['under', 'ok', 'over', 'no-subject'];
 export const SKIN_VERDICTS = ['correct', 'too-warm', 'too-cool', 'too-green', 'too-magenta', 'too-warm-and-green',
   'too-warm-and-magenta', 'too-cool-and-green', 'too-cool-and-magenta', 'mixed-light', 'no-skin'];
+// Skin is the reference, so "mixed light" is no longer a verdict the model can retreat to;
+// sessions that already contain it still read.
+export const OFFERED_SKIN_VERDICTS = SKIN_VERDICTS.filter(v => v !== 'mixed-light');
 const SETTINGS = ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint', 'Exposure2012',
   'Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'];
 
@@ -28,7 +31,7 @@ export const ASSESSMENT_SCHEMA = {
     // makes skin look natural (0 when it already does), so silence is never ambiguous.
     skinTone: {type: 'object', additionalProperties: false, required: ['verdict', 'temperatureShift', 'tintShift', 'note'],
       properties: {
-        verdict: {type: 'string', enum: SKIN_VERDICTS},
+        verdict: {type: 'string', enum: OFFERED_SKIN_VERDICTS},
         temperatureShift: {type: 'number'},
         tintShift: {type: 'number'},
         note: {type: 'string', maxLength: 160}
@@ -95,13 +98,13 @@ function sharedLines({policy, enabled, task}) {
     'Set intent when the look is deliberate (low-key, high-key, silhouette, creative colour). Set mixedLighting when more than one light colour falls on the subject.',
     'If you are unsure, set skip=true or lower confidence. A skipped photo costs the photographer seconds; a wrong edit costs trust.',
     'changes: ABSOLUTE Lightroom values for only the settings you would change, using the photo\'s current Develop values as the starting point. Leave changes empty when no correction is needed.',
-    'confidence: your probability that a careful photographer would accept your judgment for this photo.',
+    'confidence: how sure you are of your skin-tone and exposure verdicts for the main people. It is not how large the correction should be, and you must never lower it because of the look setting, the background colour or mixed light.',
     'Editing direction: ' + (LOOK_BRIEF[policy.look] || policy.look) + ' Strength: ' + policy.strength + '.',
     'Enabled corrections: ' + Object.entries(enabled).filter(([, v]) => v).map(([k]) => k).join(', ') + '. Do not propose changes for disabled groups.',
     enabled.wb ? 'SKIN TONE (required, every photo): look at the skin of the main people and decide whether its colour is natural for that person under this light. ' +
       'Set skinTone.verdict, and set temperatureShift/tintShift to the white-balance change that would make the skin look natural — use 0 and 0 when it already does. ' +
       'Do not put white-balance settings in changes; skinTone carries them. Respect each person\'s own complexion and purposeful warm light (golden hour, candlelight). ' +
-      'Use verdict "mixed-light" when different light colours fall on the skin and "no-skin" when no skin is visible (both with 0 shifts). ' +
+      'Skin is the only colour reference. Give the shift that makes the main people\'s skin look best, even when the background, walls or window light are a different colour (a cooler or warmer background is not a reason to leave skin uncorrected, and never lower your confidence for it); set mixedLighting if you see it, but still correct the skin. With several people, correct for the most prominent skin. Use verdict "no-skin" (0 shifts) only when no skin is visible. ' +
       'Use the measured whiteSurfacesCast (CIELAB of white clothing/trim; neutral is a*=b*=0): a* above +1.5 means magenta, below −1.5 green; b* below −1.5 cool, above +1.5 warm. ' +
       'Do not answer "correct" when that measurement shows a visible cast, unless the light colour is clearly deliberate.' : null
   ].filter(Boolean);
