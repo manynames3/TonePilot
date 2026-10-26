@@ -297,3 +297,59 @@ test('each photo\'s own skin verdict wins over the scene: a frame whose temperat
   assert.ok(d.b.changes.Temperature < 4950 && d.c.changes.Temperature < 4950);
   assert.match(d.b.rationale.join(' '), /set for the skin/);
 });
+
+const sceneOf = (...ps) => [{id: 'S1', photos: ps.map(p => p.id), flash: false}];
+const balanced = (ps, enabled = {wb: true, exposure: true, tone: false}) =>
+  decide({photos: ps, scenes: sceneOf(...ps), policy: resolvePolicy('Natural', 'Balanced'), enabled});
+const coolMagenta = {verdict: 'too-cool-and-magenta', temperatureShift: 150, tintShift: -3, note: ''};
+
+test('mixed light plus weak or deliberate evidence is not synced to the scene; only skin evidence goes ahead', () => {
+  const advisory = {...castPhoto({a: 0, b: 0}), id: 'a'};
+  advisory.ai.mixedLighting = true;
+  advisory.metrics = {...advisory.metrics, whites: {a: 0, b: 0, fraction: 0.005}, neutral: {a: 3.4, b: -2.66, fraction: 0.5}};
+  const golden = {...castPhoto({a: 0.5, b: 4}, {illuminant: 'golden-hour'}), id: 'g'};
+  const b = {...skinPhoto('kelvin', 'too-warm-and-magenta', -250, -3), id: 'b'}, c = {...skinPhoto('kelvin', 'too-warm-and-magenta', -250, -3), id: 'c'};
+  const d = balanced([advisory, golden, b, c]);
+  assert.ok(!('Temperature' in d.a.changes) && !('Tint' in d.a.changes), 'advisory + mixed light: ' + JSON.stringify(d.a.changes));
+  assert.ok(!('Temperature' in d.g.changes), 'deliberate golden light stays: ' + JSON.stringify(d.g.changes));
+  assert.ok(d.b.changes.Temperature < 4950, 'skin-driven frames still corrected');
+});
+
+test('below the confidence bar, only the axes the measurement confirmed are applied', () => {
+  // AI: cooler skin (+200 K) and magenta (−9 tint). Measurement: clearly cool, almost no magenta (tint < 2).
+  const p = lowConf({a: 0.1, b: -3}, {skinTone: {verdict: 'too-cool-and-magenta', temperatureShift: 200, tintShift: -9, note: ''}, confidence: 0.75});
+  const d = decideBalanced(p);
+  assert.equal(d.status, 'proposed', d.reason);
+  assert.ok(d.changes.Temperature > 4950, 'temperature confirmed: ' + JSON.stringify(d.changes));
+  assert.ok(!('Tint' in d.changes), 'tint was not confirmed by the measurement: ' + JSON.stringify(d.changes));
+});
+
+test('a cast on general neutral areas never confirms a low-confidence verdict', () => {
+  const p = lowConf({a: 3.1, b: -2.5}, {skinTone: coolMagenta, confidence: 0.75});
+  p.metrics.whites.fraction = 0.005; p.metrics.neutral = {a: 3.1, b: -2.5, fraction: 0.5};
+  assert.equal(decideBalanced(p).status, 'flagged');
+});
+
+test('below the bar, nothing but the confirmed white-balance moves: no exposure, no tone', () => {
+  const p = lowConf({a: 3.1, b: -2.5}, {skinTone: coolMagenta, confidence: 0.75, subjectExposure: 'under', proposed: {Exposure2012: 0.6, Shadows2012: 40}});
+  const d = decide({photos: [p], scenes: sceneOf(p), policy: resolvePolicy('Natural', 'Balanced'), enabled: {wb: true, exposure: true, tone: true}}).p;
+  assert.equal(d.status, 'proposed', d.reason);
+  assert.ok(('Temperature' in d.changes || 'Tint' in d.changes) && !('Exposure2012' in d.changes) && !('Shadows2012' in d.changes), JSON.stringify(d.changes));
+});
+
+test('a below-the-bar photo is a consumer of its scene, never an anchor for the others', () => {
+  const a = {...lowConf({a: 3.1, b: -2.5}, {skinTone: {verdict: 'too-cool-and-magenta', temperatureShift: 400, tintShift: -3, note: ''}, confidence: 0.75}), id: 'a'};
+  const b = {...castPhoto({a: 0, b: 0}), id: 'b'}, c = {...castPhoto({a: 0, b: 0}), id: 'c'};   // confident, skin natural, no cast
+  const d = balanced([a, b, c]);
+  // The magenta-heavy cast has almost no temperature component, so only tint is confirmed and applied;
+  // the model's +400 K never becomes the scene's target for the confident frames.
+  assert.ok('Tint' in d.a.changes && !('Temperature' in d.a.changes), JSON.stringify(d.a.changes));
+  assert.ok(!('Temperature' in d.b.changes) && !('Temperature' in d.c.changes), 'its proposal did not become the scene target');
+});
+
+test('JPEG/HEIC: each photo keeps its own skin correction instead of being blended toward the scene', () => {
+  const a = {...skinPhoto('relative', 'too-magenta', 0, -9), id: 'a'}, b = {...skinPhoto('relative', 'too-magenta', 0, -3), id: 'b'};
+  const d = balanced([a, b]);
+  assert.equal(d.a.changes.IncrementalTint, -7, JSON.stringify(d.a.changes));   // 80% of −9, not pulled toward −6
+  assert.equal(d.b.changes.IncrementalTint, -2, JSON.stringify(d.b.changes));
+});

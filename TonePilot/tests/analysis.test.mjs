@@ -311,3 +311,20 @@ test('the prompt makes skin the reference and keeps background colour out of the
   assert.doesNotMatch(JSON.stringify(ASSESSMENT_SCHEMA.properties.skinTone.properties.verdict.enum), /mixed-light/);
   assert.equal(normalizeAssessment({confidence: 0.9, skinTone: {verdict: 'mixed-light'}}).skinTone.verdict, 'mixed-light', 'old sessions still read');
 });
+
+test('below the bar, a dark face does not confirm an "ok" verdict', () => {
+  n = 0;
+  const p = photo({face: 0.03, ai: {confidence: 0.75, subjectExposure: 'ok'}});
+  const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.equal(d[p.id].status, 'flagged');
+});
+
+test('below the bar, a dark-face confirmation lets only exposure through: the unconfirmed white balance and tone are not applied', () => {
+  n = 0;
+  const p = photo({face: 0.03, ai: {confidence: 0.75, subjectExposure: 'under', proposed: {Exposure2012: 0.5, Shadows2012: 30, Temperature: 5600, Tint: -4},
+    skinTone: {verdict: 'too-cool-and-magenta', temperatureShift: 400, tintShift: -4, note: ''}}});
+  const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.equal(d[p.id].status, 'proposed', d[p.id].reason);
+  const keys = Object.keys(d[p.id].changes);
+  assert.deepEqual(keys, ['Exposure2012'], keys.join(','));
+});
