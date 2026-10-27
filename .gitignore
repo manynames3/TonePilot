@@ -65,3 +65,6 @@ npm-debug.log*
 
 # Local developer preview disk images (not notarized)
 dist/
+
+# Local agent worktrees
+.claude/worktrees/
