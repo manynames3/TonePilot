@@ -17,7 +17,7 @@ import {measuredCast, correctionForCast, relativeCorrectionForCast, describeCast
 const TONE_KEYS = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'];
 const KEEP_INTENT = new Set(['low-key', 'high-key', 'silhouette']);
 export const LIMITS = Object.freeze({
-  sceneDisagreementEV: 1.0, sameCameraExposureEV: 1 / 3, wbDeadbandMired: 3, wbOutlierMired: 15, wbDriftMired: 8,
+  sceneDisagreementEV: 1.0, sameCameraExposureEV: 1 / 3, veryDarkFace: 0.05, wbDeadbandMired: 3, wbOutlierMired: 15, wbDriftMired: 8,
   tintDeadband: 2, toneDeadband: 3, skinHueWarnDeg: 10, minFaceLuma: 0.002, relativeWbAgreement: 8,
   // A face must be big enough in a big enough preview to be measured reliably. Real
   // Lightroom previews can come back smaller than requested (416 px was observed).
@@ -63,15 +63,28 @@ function boundsAround(baseline, origin, cap) {
   return [Math.max(baseline - cap, origin - cap), Math.min(baseline + cap, origin + cap)];
 }
 
+// Corrections the on-device measurements confirm independently of the model's own number:
+// a face that is measurably very dark when the model says "under", and a white-balance
+// direction the measured white surfaces agree with.
+function corroboration(p) {
+  const face = faceLuma(p);
+  return {exposure: p.ai.subjectExposure === 'under' && face !== null && face < LIMITS.veryDarkFace,
+    wb: p.wbEvidence?.source === 'ai+measured' && !p.wbEvidence.disagree && p.wbEvidence.cast?.source === 'white surfaces'};
+}
+
+// The evidence ladder. At or above the bar everything goes ahead. Between the floor and the
+// bar only the corrections the measurements confirm go ahead (`only`); otherwise the photo is
+// flagged for the photographer. Below the floor nothing is changed.
 function gate(p, policy) {
   if (p.state === 'unsupported') return {status: 'unsupported'};
   if (!p.ai) return {status: 'flagged', reason: 'AI assessment unavailable' + (p.aiError ? ': ' + p.aiError : '') + '. Nothing will be changed.'};
   if (p.ai.skip) return {status: 'skipped', reason: p.ai.reason || 'The assessment found nothing that needs correcting.'};
-  if (!(p.ai.confidence >= policy.minConfidence)) {
-    return {status: 'flagged', reason: 'Below the evidence threshold (' + Math.round(policy.minConfidence * 100) + '%; model reported ' +
-      Math.round((p.ai.confidence || 0) * 100) + '%, uncalibrated). ' + (p.ai.reason || '')};
-  }
-  return null;
+  const conf = p.ai.confidence, pct = Math.round((conf || 0) * 100) + '%';
+  if (conf >= policy.minConfidence) return null;
+  const confirmed = conf >= policy.corroboratedConfidence ? corroboration(p) : null;
+  if (confirmed && (confirmed.exposure || confirmed.wb)) return {only: confirmed, pct, bar: Math.round(policy.minConfidence * 100) + '%'};
+  return {status: 'flagged', reason: 'Below the evidence threshold (' + Math.round(policy.minConfidence * 100) + '%; model reported ' + pct + ', uncalibrated)' +
+    (confirmed ? " and the measurements don't confirm it" : '') + '. ' + (p.ai.reason || '')};
 }
 
 // Scene target = median of the implied targets that agree with each other. A frame
@@ -89,7 +102,7 @@ export function sceneExposureTarget(anchors, biasEV) {
 }
 
 function decideExposure(scene, eligible, policy, out) {
-  const anchors = eligible.filter(p => out[p.id].allow.exposure && faceLuma(p) && aiExposureEV(p) !== null)
+  const anchors = eligible.filter(p => out[p.id].allow.exposure && !out[p.id].consumer && faceLuma(p) && aiExposureEV(p) !== null)
     .map(p => ({id: p.id, face: faceLuma(p), ev: aiExposureEV(p)}));
   const {target, agreeing, outliers} = sceneExposureTarget(anchors, policy.exposureBiasEV);
   // Faces differ for two reasons: exposure, and the people themselves. Frames with the same
@@ -163,7 +176,7 @@ function decideWhiteBalance(scene, eligible, policy, out) {
   const wb = eligible.filter(p => out[p.id].allow.wb && p.capabilities?.wbMode !== 'relative');
   if (!wb.length) return;
   // A half-way change made on a measurement alone stays on its own photo: it never sets the scene.
-  const assessed = wb.filter(p => p.wbEvidence?.source !== 'measured');
+  const assessed = wb.filter(p => p.wbEvidence?.source !== 'measured' && !out[p.id].consumer);
   const aiTemps = assessed.filter(p => typeof p.ai.proposed?.Temperature === 'number');
   const aiTints = assessed.filter(p => typeof p.ai.proposed?.Tint === 'number');
   let targetMired = null, targetTint = null, source = null;
@@ -181,7 +194,9 @@ function decideWhiteBalance(scene, eligible, policy, out) {
     const d = out[p.id];
     const baseM = mired(p.baseline.Temperature), originM = mired(p.origin?.Temperature ?? p.baseline.Temperature);
     const own = typeof p.ai.proposed?.Temperature === 'number' ? mired(p.ai.proposed.Temperature) : null;
-    const alone = p.wbEvidence?.source === 'measured';   // its own half-way change, never the scene's
+    // A photo with its own skin evidence is corrected for its own skin, never dragged to the
+    // scene's median; the scene only guides frames that have no skin evidence of their own.
+    const alone = !!p.wbEvidence;   // advisory / deliberate photos are left as they are, not synced
     let tgt = alone ? own : targetMired;
     if (!alone && own !== null && tgt !== null && Math.abs(own - tgt) > LIMITS.wbOutlierMired) {
       tgt = own;
@@ -192,11 +207,14 @@ function decideWhiteBalance(scene, eligible, policy, out) {
       if (Math.abs(dm) >= LIMITS.wbDeadbandMired) {
         const [lo, hi] = boundsAround(baseM, originM, policy.caps.TemperatureMired);
         const m = clamp(baseM + dm, lo, hi);
-        const k = roundSetting('Temperature', kelvin(m));
+        let k = roundSetting('Temperature', kelvin(m));
+        // A whole Kelvin is a bigger step in mired at low temperatures, so rounding can land
+        // just outside the limit (2900 K → 3079 K is 20.05 mired against 20): step back inside.
+        for (let i = 0; i < 100 && (mired(k) < lo - 1e-9 || mired(k) > hi + 1e-9); i++) k += k > p.baseline.Temperature ? -1 : 1;
         if (Math.abs(k - p.baseline.Temperature) >= 1) {
           d.changes.Temperature = k;
-          d.rationale.push((source === 'drift' ? 'White balance synced to the scene (auto white balance drifted between frames)' :
-            'White balance aligned with the scene') + ': ' + p.baseline.Temperature + ' K → ' + k + ' K.');
+          d.rationale.push((source === 'drift' && !alone ? 'White balance synced to the scene (auto white balance drifted between frames)' :
+            alone ? 'White balance set for the skin' : 'White balance aligned with the scene') + ': ' + p.baseline.Temperature + ' K → ' + k + ' K.');
           if (Math.abs(m - (baseM + dm)) > 0.5) d.rationale.push('Temperature limited by the ' + policy.strength + ' cap.');
         }
       }
@@ -232,7 +250,7 @@ function decideRelativeWhiteBalance(photos, policy, out) {
       const d = out[p.id], mine = own(p);
       if (mine === null) continue;
       let delta = mine;
-      if (sceneDelta !== null) {
+      if (sceneDelta !== null && !p.wbEvidence) {
         if (Math.abs(mine - sceneDelta) <= LIMITS.relativeWbAgreement) delta = (mine + sceneDelta) / 2;
         else d.warnings.push('This frame\'s colour was judged differently from the rest of its scene; its own correction was used.');
       }
@@ -246,7 +264,7 @@ function decideRelativeWhiteBalance(photos, policy, out) {
       const cast = key === 'IncrementalTint' && (p.ai.skinCast === 'green' || p.ai.skinCast === 'magenta') ? ' to reduce a ' + p.ai.skinCast + ' skin cast'
         : key === 'IncrementalTemperature' && (p.ai.skinCast === 'too-cool' || p.ai.skinCast === 'too-warm') ? ' — skin looked ' + p.ai.skinCast.replace('too-', 'too ') : '';
       d.rationale.push('White balance ' + (key === 'IncrementalTint' ? 'tint ' : '') + words[v > base ? 0 : 1] + ' by ' + Math.abs(v - base) + cast +
-        (sceneDelta !== null && Math.abs(mine - sceneDelta) <= LIMITS.relativeWbAgreement ? ' (consistent with its scene)' : '') + '.');
+        (sceneDelta !== null && !p.wbEvidence && Math.abs(mine - sceneDelta) <= LIMITS.relativeWbAgreement ? ' (consistent with its scene)' : '') + '.');
       if (Math.abs(v - (base + delta)) > 0.5) d.rationale.push('White balance limited by the ' + policy.strength + ' cap.');
     }
   }
@@ -337,7 +355,7 @@ function significant(key, shift, baseline) {
 export function withSkinTone(p) {
   if (!p.capabilities?.wb || !p.ai) return p;
   const st = p.ai.skinTone;
-  if (st?.verdict === 'mixed-light' || p.ai.mixedLighting) return p;
+  if (st?.verdict === 'mixed-light') return p;   // an older session; the model is no longer offered this verdict
   const relative = p.capabilities.wbMode === 'relative';
   const [tKey, iKey] = relative ? ['IncrementalTemperature', 'IncrementalTint'] : ['Temperature', 'Tint'];
   if (typeof p.baseline[tKey] !== 'number' || typeof p.baseline[iKey] !== 'number') return p;
@@ -355,16 +373,18 @@ export function withSkinTone(p) {
     // (neither is trusted to be the bigger, truer one); where they point opposite ways the
     // model's skin judgment stands and the photo is flagged for a look.
     let usedMeasurement = false, disagree = false;
+    const axes = {};   // per axis: did the measurement confirm the model's direction?
     for (const k of [tKey, iKey]) {
       if (!aiShift[k]) continue;
       const m = measured && significant(k, measured[k], p.baseline) ? measured[k] : 0;
       const same = m && Math.sign(m) === Math.sign(aiShift[k]);
+      axes[k] = same ? 'agree' : m ? 'disagree' : 'ai';
       disagree ||= !!(m && !same);
       proposed[k] = p.baseline[k] + (same ? (m + aiShift[k]) / 2 : aiShift[k]);
       usedMeasurement ||= !!same;
     }
     return {...p, ai: {...p.ai, proposed, skinCast: VERDICT_CAST[st.verdict]},
-      wbEvidence: {source: usedMeasurement ? 'ai+measured' : 'ai', cast, disagree}};
+      wbEvidence: {source: usedMeasurement ? 'ai+measured' : 'ai', cast, disagree, axes}};
   }
   if (!cast) return p;
   if (deliberate) return {...p, wbEvidence: {source: 'deliberate', cast}};
@@ -386,23 +406,37 @@ export function decide({photos: input, scenes, policy, enabled}) {
     const eligible = [];
     for (const p of members) {
       const g = gate(p, policy);
-      if (g) { out[p.id] = {status: g.status, changes: {}, reason: g.reason || '', rationale: [], warnings: [], confidence: p.ai?.confidence ?? null}; continue; }
+      if (g?.status) { out[p.id] = {status: g.status, changes: {}, reason: g.reason || '', rationale: [], warnings: [], confidence: p.ai?.confidence ?? null}; continue; }
       // Deliberate looks are preserved in every direction; True to scene also keeps creative colour.
       const keep = KEEP_INTENT.has(p.ai.intent);
       const keepColour = policy.respectCreativeColour && p.ai.intent === 'creative-colour';
       const d = {status: 'skipped', changes: {}, reason: p.ai.reason || '', rationale: [], warnings: [], confidence: p.ai.confidence,
-        allow: {exposure: enabled.exposure && p.capabilities?.exposure && !keep,
-          wb: enabled.wb && p.capabilities?.wb && !p.ai.mixedLighting && !keepColour,
-          tone: enabled.tone && p.capabilities?.tone && !keep}};
+        allow: {exposure: enabled.exposure && p.capabilities?.exposure && !keep && (!g?.only || g.only.exposure),
+          // Mixed light blocks only the guesswork (syncing to the scene); a skin correction goes ahead.
+          wb: enabled.wb && p.capabilities?.wb && !keepColour && (!p.ai.mixedLighting || ['ai', 'ai+measured', 'measured'].includes(p.wbEvidence?.source)) && (!g?.only || g.only.wb),
+          tone: enabled.tone && p.capabilities?.tone && !keep && !g?.only}};
+      if (g?.only) { d.consumer = true; d.only = g.only; }   // below the bar: follows the scene, never leads it
+      if (g?.only) d.rationale.push('Model confidence ' + g.pct + ' is below ' + g.bar + ', so only what the on-device measurements independently confirm was applied: ' +
+        [g.only.exposure ? 'face brightness' : null, g.only.wb ? 'white surfaces agreeing on the skin cast' : null].filter(Boolean).join(' and ') + '.');
       if (keep) d.rationale.push('Kept the intentional ' + p.ai.intent + ' look.');
       if (keepColour) d.rationale.push('Kept the deliberate colour of the light.');
       if (enabled.wb && !p.capabilities?.wb) d.warnings.push(p.capabilities?.wbNote || 'White balance cannot be changed for this file.');
-      if (enabled.wb && p.capabilities?.wb && p.ai.mixedLighting) d.warnings.push('Mixed lighting: white balance left for you to judge.');
+      if (enabled.wb && p.capabilities?.wb && p.ai.mixedLighting) d.warnings.push(p.wbEvidence
+        ? 'Mixed light in the frame: white balance was set for the skin, so the background may look different.'
+        : 'Mixed lighting: white balance left for you to judge.');
       out[p.id] = d; eligible.push(p);
     }
     decideExposure(scene, eligible, policy, out);
     decideWhiteBalance(scene, eligible, policy, out);
     decideTone(scene, eligible, policy, out);
+    // Below the bar only what the measurement confirmed goes ahead: drop the axes it did not.
+    for (const p of eligible) {
+      const d = out[p.id];
+      if (!d.only?.wb || !d.allow.wb) continue;
+      const dropped = Object.entries(p.wbEvidence?.axes || {}).filter(([k, how]) => how !== 'agree' && k in d.changes);
+      for (const [k] of dropped) delete d.changes[k];
+      if (dropped.length) d.rationale.push('Not applied (the measurement did not confirm it): ' + dropped.map(([k]) => k.replace('Incremental', '')).join(', ') + '.');
+    }
     skinHueWarnings(members, out);
     for (const p of eligible) {
       const d = out[p.id];
@@ -410,7 +444,7 @@ export function decide({photos: input, scenes, policy, enabled}) {
       if (d.allow.wb && p.wbEvidence?.disagree) d.warnings.push('The AI and the measured ' + p.wbEvidence.cast.source + ' disagree on the white-balance direction; check this photo.');
       if (p.wbEvidence?.source === 'measured' && ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint'].some(k => k in d.changes))
         d.warnings.push('White balance changed on the measurement alone (the AI judged the skin natural); check this photo.');
-      delete d.allow;
+      delete d.allow; delete d.consumer; delete d.only;
       if (!Object.keys(d.changes).length) {
         d.status = 'skipped';
         if (!d.reason) d.reason = 'Already consistent with its scene; nothing to change.';

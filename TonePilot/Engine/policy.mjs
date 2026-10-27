@@ -5,6 +5,10 @@
 // the evidence must be is a separate, single threshold: a larger strength must never admit
 // photos the model is less sure about. It is provisional until calibrated on rated photos.
 export const MIN_CONFIDENCE = 0.82;
+// Between the floor and the bar a photo still goes ahead, but only for corrections the
+// on-device measurements independently confirm (see harmonize.mjs). Below the floor
+// nothing is changed. Both are provisional until calibrated on rated photos.
+export const CORROBORATED_CONFIDENCE = 0.70;
 //
 // Temperature limits are in mired (1e6 / Kelvin) because perceived white-balance shifts
 // are roughly uniform in mired: 600 K is a huge move at 3200 K and a small one at 6500 K.
@@ -64,7 +68,7 @@ export function resolvePolicy(look, strength) {
   if (!l || !s) throw new Error('Unknown editing direction or strength');
   const caps = {};
   for (const [k, v] of Object.entries(s.caps)) caps[k] = Math.min(v, HARD_CAPS[k]);
-  return {look, strength, fraction: s.fraction, minConfidence: MIN_CONFIDENCE, caps,
+  return {look, strength, fraction: s.fraction, minConfidence: MIN_CONFIDENCE, corroboratedConfidence: CORROBORATED_CONFIDENCE, caps,
     exposureBiasEV: l.exposureBiasEV, exposureDeadbandEV: l.exposureDeadbandEV,
     toneBias: {...l.toneBias}, maxNewClipFraction: l.maxNewClipFraction, respectCreativeColour: l.respectCreativeColour};
 }
