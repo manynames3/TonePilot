@@ -5,7 +5,7 @@
 For portrait, family, wedding and event photographers who already know how to edit and are tired of fixing the same exposure and white-balance drift frame after frame. You select photos in Lightroom; TonePilot groups them into lighting scenes, proposes small corrections that make each scene consistent, and writes only the edits you approve. Lightroom stays your editor.
 
 > [!IMPORTANT]
-> **Developer preview · v0.6.0 · not for client work yet.** The engine includes automated safety and recovery tests against a simulated Lightroom, including killed processes and a dying bridge. The current test inventory and real-world checks are recorded in the evidence log. In real Lightroom, TonePilot has made 16 Develop writes (13 RAW, 3 HEIC), all verified by read-back, including white-balance corrections on RAW, and has compared AI services and models read-only on real photos. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** Time savings are unmeasured. See the [changelog](CHANGELOG.md) and [what has actually been measured](docs/EVIDENCE.md).
+> **Developer preview · v0.6.1 · not for client work yet.** The engine includes automated safety and recovery tests against a simulated Lightroom, including killed processes and a dying bridge. The current test inventory and real-world checks are recorded in the evidence log. In real Lightroom, TonePilot has made 46 Develop writes (43 RAW, 3 HEIC), all verified by read-back, including 36 white-balance corrections on RAW, and has compared AI services and models read-only on real photos. **Restore on real photos, the test-catalog protocol and a photographic-quality benchmark have not been run yet.** Time savings are unmeasured. See the [changelog](CHANGELOG.md) and [what has actually been measured](docs/EVIDENCE.md).
 
 <table>
 <tr>
@@ -90,7 +90,7 @@ TonePilot's **Setup** screen checks all of the above and tells you how to fix an
 |---|---|
 | Durable sessions, recovery, verified writes, safe restore | Implemented; tested against a simulated Lightroom with fault injection |
 | Real Lightroom read path, measurements, scene grouping, planning | Verified read-only on HEIC and RAW photos |
-| Real Develop writes | 16 in the owner's catalog, 16/16 verified; restore not yet exercised; test-catalog protocol ([gate G1](docs/VALIDATION.md)) not run |
+| Real Develop writes | 46 in the owner's catalog, 46/46 verified by read-back; restore not yet exercised; test-catalog protocol ([gate G1](docs/VALIDATION.md)) not run |
 | White balance | Skin-tone verdict + measured colour-cast correction; verified writes on RAW, which also switch Lightroom to Custom; HEIC/JPEG need a bridge that writes relative white balance |
 | AI services | Four behind one interface; Codex models compared on 10 real photos (GPT-6.1-Sol most consistent); Decisions API and Claude 5.5 not yet run for real |
 | TonePilot's own Lightroom plug-in | Built and tested against a mock; **not yet verified inside Lightroom** |

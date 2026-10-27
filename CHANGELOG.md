@@ -2,7 +2,7 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
-## Unreleased
+## 0.6.1 — developer preview (October 27, 2026)
 
 - **The after-edit check retries Lightroom's intermittent "error loading thumb"** (three tries, with a pause and another size) and, if it still can't get a preview, says so in plain words — the edit itself had already been verified from Lightroom's values; only the optional brightness check is skipped.
 - **Far fewer photos held back for review, without lowering the bar blindly.** An evidence ladder replaces the single confidence threshold: at 82% everything goes ahead; between 70% and 82% only the corrections the on-device measurements independently confirm go ahead (a face measurably very dark when the model says "under", white surfaces agreeing with the model's skin cast); below 70% nothing is changed. On 20 real RAW photos held-back photos fell from 6 to 1. Below the bar only the axes the measurement confirmed are applied, a photo below the bar never leads its scene, and photos with deliberate or weak-cast evidence are left alone rather than synced; JPEG/HEIC photos keep their own skin correction too.

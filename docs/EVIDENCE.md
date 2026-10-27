@@ -41,15 +41,17 @@ Not the controlled sandbox protocol (G1): the owner applied a Natural / Balanced
 | Restore on real photos | **Not yet exercised** |
 | White balance | **Not written**: the installed bridge cannot read or write Lightroom's relative white balance (`IncrementalTemperature/Tint`) used by HEIC/JPEG, confirmed from its published write schema |
 
-## Real writes to date (owner-run, October 22, 2026)
+## Real writes to date (owner-run, through October 26, 2026)
 
 | | Result |
 |---|---|
-| Develop writes | 16 (13 RAW, 3 HEIC) across 6 sessions |
-| Verified by read-back | **16/16** |
-| White-balance writes | 7, all on RAW (e.g. 4450 → 4820 K, tint 13 → 16; tint 14 → 6 from the measured cast), all verified |
-| White-balance mode | Lightroom kept showing **As Shot** after a Temperature/Tint write (seen by the owner); the mock had wrongly flipped it to Custom. Fixed: every WB write now also sets Custom, and restore puts the original mode back in the same write. No real write has used the fix yet |
-| Restores on real photos | 0 — not yet exercised |
+| Develop writes | 46 (43 RAW, 3 HEIC) across 9 sessions |
+| Verified by read-back | **46/46** |
+| White-balance writes | 36, all on RAW, all verified; 22 of them also set Lightroom's **Custom** mode in the same write (the fix for the "As Shot" label the owner saw after earlier writes) and read back as intended |
+| Exposure writes | 17, all verified |
+| Restores on real photos | **0** — not yet exercised |
+
+Counts are aggregates from the owner's session journals; the earlier 16-write count predates the white-balance mode fix. One applied photo also showed an optional after-edit brightness check skipped because Lightroom answered "error loading thumb" right after the edit (the edit itself was verified); that check now retries.
 
 **Colour-cast measurement** (read-only, analyzer on Lightroom previews): white surfaces on 4D6A8895 measure a* +2.6, b* −1.1 (white shirts, 17% of the frame); on 4D6A8913 a* +3.4, b* −2.7. With the colour-science conversion the plan for 4D6A8895 is Tint 14 → 8 (Balanced) / 6 (Stronger); before this change the AI called the skin natural and nothing was proposed. One real calibration point (tint −2 → white a* −0.27) is within a factor of ~2 of the theoretical slope (~0.30 a* per tint step); more paired before/after measurements are needed.
 
