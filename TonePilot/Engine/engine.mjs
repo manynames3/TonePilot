@@ -305,7 +305,15 @@ async function postCheck(client, journal, p, id) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tonepilot-check-'));
     try {
       const file = path.join(dir, 'after.jpg');
-      previewHash = hash(savePreview(previewBytes(await client.tool('get_photo_preview', {photo_id: id, size: 640})), file));
+      // Lightroom re-renders after an edit and sometimes answers "error loading thumb" for a
+      // moment: ask again, with a pause and another size, before giving up on this check.
+      let jpeg, lastError;
+      for (const [attempt, size] of [640, 1024, 640].entries()) {
+        try { jpeg = previewBytes(await client.tool('get_photo_preview', {photo_id: id, size})); break; }
+        catch (e) { if (e.kind === 'closed') throw e; lastError = e; await sleep(PREVIEW_RETRY_MS * (attempt + 1)); }
+      }
+      if (!jpeg) throw lastError;
+      previewHash = hash(savePreview(jpeg, file));
       metrics = runAnalyzer(file, null);
     } finally { fs.rmSync(dir, {recursive: true, force: true}); }
     if (previewHash === p.previewHash) issues.push('Lightroom\'s preview has not updated yet; check the photo visually.');
@@ -318,7 +326,11 @@ async function postCheck(client, journal, p, id) {
       const achieved = Math.log2(metrics.subject.luma / before.subject.luma);
       if (Math.abs(achieved - ev) > 0.3) issues.push('Face brightness moved ' + achieved.toFixed(2) + ' EV (expected ' + ev.toFixed(2) + ' EV); review this frame.');
     }
-  } catch (e) { issues.push('After-edit preview unavailable: ' + e.message); }
+  } catch (e) {
+    // The edit itself was verified from Lightroom's values; only this brightness check is skipped.
+    issues.push(e.kind === 'closed' ? 'Lightroom stopped answering, so the after-edit brightness check was skipped.'
+      : 'Lightroom had not rendered a new preview of this photo yet, so the after-edit brightness check was skipped. The edit itself was verified.');
+  }
   journal.append('post-check', {photo: id, metrics, issues, previewHash});
 }
 

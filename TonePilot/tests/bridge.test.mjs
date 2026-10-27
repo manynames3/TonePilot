@@ -101,3 +101,23 @@ test('a preview that fails briefly is retried; one that never renders flags only
     assert.equal(x.get().writes.length, 0);
   } finally { x.cleanup(); }
 });
+
+test('the after-edit check retries Lightroom\'s intermittent preview failure, and a persistent one is reported in plain words', () => {
+  const x = setup({photos: {101: rawPhoto('A.CR3')}});
+  try {
+    const dir = x.analyze(['101']);
+    x.set(s => { s.previewFailures = {}; s.faults = {previewFailFirst: {101: 2}}; });   // two failures, then a preview
+    assert.equal(x.run(['--mode', 'apply', '--session', dir, '--confirm']).status, 0);
+    const recovered = x.journal(dir).find(r => r.type === 'post-check');
+    assert.ok(recovered.metrics && !recovered.issues.some(i => /preview/i.test(i)), JSON.stringify(recovered.issues));
+    assert.equal(x.run(['--mode', 'restore', '--session', dir, '--confirm']).status, 0);
+
+    const dir2 = x.analyze(['101']);
+    x.set(s => { s.faults = {previewOffline: ['101']}; });                               // never renders
+    assert.equal(x.run(['--mode', 'apply', '--session', dir2, '--confirm']).status, 0);
+    const skipped = x.journal(dir2).filter(r => r.type === 'post-check').at(-1);
+    assert.equal(x.show(dir2).photos[0].state, 'applied', 'the edit itself is unaffected');
+    assert.match(skipped.issues.join(' '), /had not rendered a new preview/);
+    assert.ok(!skipped.issues.join(' ').includes('HandlerPreview.lua'), 'no raw Lightroom error text');
+  } finally { x.cleanup(); }
+});
