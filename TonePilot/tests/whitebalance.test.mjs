@@ -172,6 +172,40 @@ test('when the AI calls skin natural, a cast on white surfaces is corrected only
   assert.ok(d.warnings.some(w => /measurement alone/.test(w)), 'the photographer is told to check');
 });
 
+test('neutral whites never create a correction, regardless of existing white balance or strength', () => {
+  for (const strength of ['Subtle', 'Balanced', 'Stronger']) {
+    for (const temperature of [2900, 4950, 6500]) {
+      for (const tint of [-14, 0, 14]) {
+        const p = castPhoto({a: 0, b: 0});
+        p.baseline.Temperature = temperature; p.baseline.Tint = tint;
+        const d = decide({photos: [p], scenes: [{id: 'S1', photos: ['p'], flash: false}],
+          policy: resolvePolicy('Natural', strength), enabled: {wb: true, exposure: true, tone: false}}).p;
+        assert.deepEqual(d.changes, {}, `${strength}, ${temperature} K, tint ${tint}`);
+      }
+    }
+  }
+});
+
+test('mirrored white-surface casts correct tint in both directions on RAW and relative files', () => {
+  for (const mode of ['kelvin', 'relative']) {
+    for (const temperature of [2900, 4950, 6500]) {
+      const tintKey = mode === 'kelvin' ? 'Tint' : 'IncrementalTint';
+      const delta = a => {
+        const p = castPhoto({a, b: 0});
+        p.capabilities.wbMode = mode;
+        p.baseline = mode === 'kelvin' ? {...p.baseline, Temperature: temperature}
+          : {WhiteBalance: 'As Shot', IncrementalTemperature: 0, IncrementalTint: 12, Exposure2012: 0};
+        const d = decideStrong(p);
+        assert.ok(tintKey in d.changes, JSON.stringify(d));
+        return d.changes[tintKey] - p.baseline[tintKey];
+      };
+      const magenta = delta(3), green = delta(-3);
+      assert.ok(magenta < 0 && green > 0, `${mode}, ${temperature} K: ${magenta}, ${green}`);
+      assert.ok(Math.abs(magenta + green) <= 1, 'no preferred tint direction beyond slider rounding');
+    }
+  }
+});
+
 test('a cast measured only on general neutral areas never changes white balance on its own', () => {
   const p = castPhoto({a: 3.4, b: -2.66});
   p.metrics.whites.fraction = 0.005;                       // no real white reference

@@ -2,6 +2,10 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
+## Unreleased
+
+- **Tint-bias sanity checks (synthetic only).** The analyzer now checks neutral JPEGs tagged sRGB, Display P3 and Adobe RGB, plus green and magenta controls; planning tests check neutral whites and corrections in both tint directions. No fixed tint offset was found in these controls. This does not establish whether the greenward corrections on the owner's photos are right; correction rules and confidence thresholds are unchanged.
+
 ## 0.6.1 — developer preview (October 27, 2026)
 
 - **The after-edit check retries Lightroom's intermittent "error loading thumb"** (three tries, with a pause and another size) and, if it still can't get a preview, says so in plain words — the edit itself had already been verified from Lightroom's values; only the optional brightness check is skipped.

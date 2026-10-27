@@ -209,12 +209,12 @@ func analyze(_ image: CGImage, original: String?) throws -> [String: Any] {
 
 // ---- Self-test on synthetic images (no photographs needed) ----
 
-func solidImage(_ w: Int, _ h: Int, _ fill: (Int, Int) -> (UInt8, UInt8, UInt8)) -> CGImage {
+func solidImage(_ w: Int, _ h: Int, space: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!, _ fill: (Int, Int) -> (UInt8, UInt8, UInt8)) -> CGImage {
     var data = [UInt8](repeating: 255, count: w * h * 4)
     for y in 0..<h { for x in 0..<w { let (r, g, b) = fill(x, y); let i = (y * w + x) * 4; data[i] = r; data[i + 1] = g; data[i + 2] = b } }
     let provider = CGDataProvider(data: Data(data) as CFData)!
     return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
-                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                   space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
                    provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
 }
 
@@ -238,6 +238,38 @@ func selftest() -> Bool {
         let red = labFromLinear(1, 0, 0)
         check("sRGB red in CIELAB", abs(red.L - 53.24) < 0.2 && abs(red.a - 80.09) < 0.3 && abs(red.b - 67.20) < 0.3,
               "\(red.L) \(red.a) \(red.b)")
+        // Exercise the tagged JPEG decode + sRGB conversion used for Lightroom previews.
+        func jpegStats(_ image: CGImage) throws -> [String: Any] {
+            let data = NSMutableData()
+            guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else {
+                throw NSError(domain: "TonePilot", code: 3)
+            }
+            CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 1.0] as CFDictionary)
+            guard CGImageDestinationFinalize(dest),
+                  let src = CGImageSourceCreateWithData(data, nil),
+                  let decoded = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+                throw NSError(domain: "TonePilot", code: 4)
+            }
+            return globalStats(try Pixels(decoded))
+        }
+        for (name, profile) in [("sRGB", CGColorSpace.sRGB), ("Display P3", CGColorSpace.displayP3), ("Adobe RGB", CGColorSpace.adobeRGB1998)] {
+            guard let space = CGColorSpace(name: profile) else {
+                check("\(name) profile available", false, ""); continue
+            }
+            for level: UInt8 in [176, 208, 232] {
+                let stats = try jpegStats(solidImage(64, 64, space: space) { _, _ in (level, level, level) })
+                let whites = stats["whites"] as! [String: Double]
+                check("neutral JPEG \(name) \(level)", whites["fraction"]! > 0.99 && abs(whites["a"]!) < 0.5 && abs(whites["b"]!) < 0.5,
+                      "\(whites)")
+            }
+        }
+        for (name, rgb, sign) in [("magenta", (UInt8(210), UInt8(204), UInt8(210)), 1.0),
+                                  ("green", (UInt8(204), UInt8(210), UInt8(204)), -1.0)] {
+            let stats = try jpegStats(solidImage(64, 64) { _, _ in rgb })
+            let whites = stats["whites"] as! [String: Double]
+            check("\(name) JPEG cast direction", whites["fraction"]! > 0.99 && sign * whites["a"]! > 1.5,
+                  "\(whites)")
+        }
         let grid = ramp["grid"] as! [Double]
         check("grid descriptor", grid.count == 48 && grid[0] < grid[9], "cells \(grid.count / 3)")
     } catch {
