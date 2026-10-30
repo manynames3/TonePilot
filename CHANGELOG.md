@@ -2,7 +2,15 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
-## Unreleased
+## 0.6.2 — developer preview (October 30, 2026)
+
+- **More consistent repeat passes.** Single-photo assessments are reused from existing private journals only when the rendered preview, observed settings, measurements, scene context, policy/prompt, engine version and model match. Changing inputs or selecting “Reassess unchanged photos” makes a fresh call. Provider comparisons always make fresh calls; repeatability scoring refuses reused assessments.
+- **Exposure protects the detected people, including clothing.** Full-person rectangles supply a separate highlight curve when all detected faces are covered and the preview/face measurement is usable. Missing or invalid measurements retain whole-frame protection. Possible extra background clipping is disclosed. Tested on synthetic images only; real-photo quality is unmeasured.
+- **Keep an approved scene reference.** A frame's analyzed settings can be kept as the exposure target and RAW WB reference for frames without their own skin correction. Individual skin evidence keeps priority. Exact matching later passes retain the latest explicit reference choice or reset. Reference changes require approval of the revised plan, cannot follow an apply attempt, and are checked against Lightroom edits before approval and dependent writes. Interrupted replans cannot be applied until resumed.
+- **Review where it matters.** “Show in Lightroom” works per photo, scene, review group or whole pass (requires TonePilot's plug-in). Applying after browsing restores the pass's authorized selection. A review filter includes measured/AI WB disagreements and after-edit warnings; read-back labels explicitly say settings were verified.
+- **An after-edit WB alarm.** Fresh previews are checked for a substantially larger cast on adequately sampled, similarly sized white selections. This is an approximate warning, not a skin-quality score; stale previews are not evaluated as new results. Synthetic tests only.
+- **202 automated tests.** The analyzer's 22 self-tests include background/people separation, white clothing, overlapping rectangles and uncovered faces. Real restore testing, owner calibration and larger-gallery validation remain outstanding.
+
 
 - **Tint-bias sanity checks (synthetic only).** The analyzer now checks neutral JPEGs tagged sRGB, Display P3 and Adobe RGB, plus green and magenta controls; planning tests check neutral whites and corrections in both tint directions. No fixed tint offset was found in these controls. This does not establish whether the greenward corrections on the owner's photos are right; correction rules and confidence thresholds are unchanged.
 

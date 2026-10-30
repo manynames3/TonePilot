@@ -9,7 +9,7 @@ export const PHOTO_LABELS = Object.freeze({
   'pending': 'Waiting', 'baselined': 'Original settings saved', 'unsupported': 'Not supported',
   'proposed': 'Edit proposed', 'skipped': 'Left unchanged', 'flagged': 'Needs your review',
   'stale': 'Changed in Lightroom since analysis', 'writing': 'Write unconfirmed',
-  'applied': 'Applied and verified', 'apply-mismatch': 'Applied with differences',
+  'applied': 'Applied · settings verified', 'apply-mismatch': 'Applied with differences',
   'apply-failed': 'Not applied', 'restoring': 'Restore unconfirmed',
   'restored': 'Restored', 'restore-mismatch': 'Restore incomplete'
 });
@@ -55,7 +55,13 @@ export function foldSession(records, {corrupt = null} = {}) {
         s.scenes = r.scenes;
         for (const sc of r.scenes) for (const id of sc.photos) if (s.photos[id]) s.photos[id].scene = sc.id;
         break;
-      case 'photo-assessed': Object.assign(photo(r.photo), {ai: r.ai || null, aiError: r.error || null, aiStats: r.stats || null}); break;
+      case 'plan-revision-started': s.planReadyAt = null; break;
+      case 'scene-reference': {
+        const sc = s.scenes.find(sc => sc.id === r.scene);
+        if (sc) { sc.reference = r.reference; sc.referenceApproved = r.approved; sc.referenceAt = r.at; }
+        break;
+      }
+      case 'photo-assessed': Object.assign(photo(r.photo), {ai: r.ai || null, aiError: r.error || null, aiStats: r.stats || null, aiKey: r.key || null}); break;
       case 'photo-proposed': {
         const p = photo(r.photo);
         p.decision = r.decision; p.changes = r.decision.changes || {}; p.state = r.decision.status;
@@ -137,6 +143,7 @@ export function deriveStatus(s) {
   const counts = {total: list.length};
   for (const p of list) counts[p.state] = (counts[p.state] || 0) + 1;
   const actions = {
+    setReference: !s.corrupt && !s.discarded && !!s.planReadyAt && !s.applyRuns.length,
     resumeAnalysis: !s.corrupt && !s.discarded && !s.planReadyAt && !s.applyRuns.length,
     apply: !s.corrupt && !s.discarded && !!s.planReadyAt && !unresolved.length && candidates.length > 0,
     restore: !s.corrupt && !unresolved.length && present.length > 0,
@@ -144,7 +151,7 @@ export function deriveStatus(s) {
     discard: !present.length && !unresolved.length && !s.discarded && !by('restore-mismatch').length
   };
   const attention = !!s.corrupt || unresolved.length > 0 || review.length > 0 ||
-    list.some(p => p.restoreConflict && PRESENT.has(p.state));
+    list.some(p => (p.restoreConflict || p.post?.issues?.length) && PRESENT.has(p.state));
   return {status, label: STATUS[status][0], explanation: STATUS[status][1], counts, actions, attention,
     present: present.length, restored: restored.length, unresolved: unresolved.map(p => p.id),
     candidates: candidates.length};
@@ -188,6 +195,7 @@ export function photoView(p) {
   const d = p.decision || {};
   return {
     id: p.id, filename: p.filename, state: p.state, stateLabel: PHOTO_LABELS[p.state] || p.state,
+    reviewRecommended: p.state !== 'restored' && (!!d.reviewRecommended || (PRESENT.has(p.state) && !!p.post?.issues?.length)),
     format: p.identity?.fileFormat || '', scene: p.scene || null, approved: !!p.approved,
     changes: changeRows(p),
     reason: d.reason || p.reason || p.staleReason || '',

@@ -1,16 +1,16 @@
 # Validation gates
 
-TonePilot moves forward only when a gate passes with real evidence. Status as of v0.5.0 (October 22, 2026).
+TonePilot moves forward only when a gate passes with real evidence. Status as of v0.6.2 (October 30, 2026).
 
 | Gate | What it proves | Status |
 |---|---|---|
-| G0 | Safety logic under failure, simulated | **Passed** — 188 automated tests, mutation-checked |
+| G0 | Safety logic under failure, simulated | **Passed** — 202 automated tests, mutation-checked |
 | G1 | Real writes, verification and restore on a disposable catalog | **Not run** — needs the photographer's go-ahead and a sandbox catalog |
-| G2 | Real read-only analysis on representative RAW galleries | **Partial** — 5 HEIC photos, one scene; a few single RAW photos; no RAW gallery yet |
+| G2 | Real read-only analysis on representative RAW galleries | **Partial** — HEIC and RAW analysis, including 20 RAW from one shoot; representative galleries still needed |
 | G3 | Photographic quality, blind | **Not run** — needs ≥ 100 held-out photos and independent raters |
 | G4 | Scale: 20 → 100 → 500 photos | **Not started** — 20-photo limit stays |
 | G5 | Distribution: Developer ID signing, notarization, dependency bundling | **Prepared** — scripts ready, no credentials used |
-| G6 | Repeatability | **Measured, below target** — 80% decision agreement on 5 photos × 2 runs |
+| G6 | Repeatability | **Small pilot only** — 100% decision/setting agreement on 10 RAW × 2; the 50-photo × 3 gate is not run; fresh assessments required |
 
 ## G1 — controlled real-write cycle
 
@@ -70,4 +70,4 @@ Remaining before a normal photographer can install it (Node.js is now bundled): 
 
 ## G6 — repeatability
 
-Analyze the same 50 photos three times: `node TonePilot/Benchmarks/repeatability.mjs <dirs…>`. **Target:** ≥ 90% decision agreement and ≥ 80% exact-setting agreement. Current (5 photos × 2): 80% / 60%.
+Analyze the same 50 photos three times with `--fresh-assessment` (reused judgments cannot measure model noise): `node TonePilot/Benchmarks/repeatability.mjs <dirs…>`. **Target:** ≥ 90% decision agreement and ≥ 80% exact-setting agreement. Earlier HEIC pilot (5 photos × 2): 80% / 60%; later RAW pilot (10 photos × 2): 100% / 100%. Neither passes the required sample gate.

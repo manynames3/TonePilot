@@ -23,6 +23,8 @@ import {runDoctor} from './doctor.mjs';
 import {previewBytes, savePreview} from './preview.mjs';
 import {childEnv} from './secrets.mjs';
 import {ENGINE_VERSION} from './version.mjs';
+import {whiteCastRegression} from './colour.mjs';
+import {assessmentKey, reusableAssessments, reuseSceneReferences} from './assessments.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (n, f = '') => { const i = argv.indexOf('--' + n); return i >= 0 && i + 1 < argv.length ? argv[i + 1] : f; };
@@ -196,7 +198,7 @@ async function runAnalysis(client, journal, dir) {
 
     // 3. Lighting scenes.
     if (!s.scenes.length && supported().length) {
-      journal.append('scenes', {scenes: groupScenes(supported())});
+      journal.append('scenes', {scenes: reuseSceneReferences(runs, s.id, groupScenes(supported()), s.photos, s.policy)});
       s = reload(dir);
     }
 
@@ -213,16 +215,20 @@ async function runAnalysis(client, journal, dir) {
       if (last && last.length < AI_BATCH && sceneOf(last[0]) === sceneOf(p)) last.push(p); else chunks.push([p]);
     }
     const provider = todo.length ? await aiProvider() : null;
+    const reusable = AI_BATCH === 1 && !flag('fresh-assessment') ? reusableAssessments(runs, s.id) : new Map();
     const onSpawn = c => { children.add(c); c.on('exit', () => children.delete(c)); };
     const record = (p, r) => {
       journal.append('photo-assessed', r.error ? {photo: p.id, error: r.error}
-        : {photo: p.id, ai: r.assessment, stats: {...r.stats, provider: provider.name, model: provider.model}});
+        : {photo: p.id, ai: r.assessment, key: r.key, stats: {...r.stats, provider: provider.name, model: provider.model}});
       emit('progress', {step: 'assess', phase: 'Assessing light, skin and exposure', index: ++done, total: supported().length, filename: p.filename});
     };
     const assessOne = async p => {
       try {
         const prompt = buildPrompt({photo: p, scene: sceneOf(p), policy: s.policy, enabled: s.config.enabled});
-        return await assessImage({jpeg: await fetchPreview(p.id), prompt, provider, onSpawn, signal: stopping.signal, wbMode: p.capabilities?.wbMode});
+        const jpeg = await fetchPreview(p.id);
+        const key = AI_BATCH === 1 ? assessmentKey({photo: p, scene: sceneOf(p), photos: s.photos, provider, prompt, previewHash: hash(jpeg), policy: s.policy}) : null;
+        if (key && reusable.has(key)) return {...reusable.get(key), key};
+        return {...await assessImage({jpeg, prompt, provider, onSpawn, signal: stopping.signal, wbMode: p.capabilities?.wbMode}), key};
       } catch (e) { return {error: String(e.message).slice(0, 200)}; }
     };
     await pool(chunks, AI_CONCURRENCY, async chunk => {
@@ -317,14 +323,18 @@ async function postCheck(client, journal, p, id) {
       metrics = runAnalyzer(file, null);
     } finally { fs.rmSync(dir, {recursive: true, force: true}); }
     if (previewHash === p.previewHash) issues.push('Lightroom\'s preview has not updated yet; check the photo visually.');
-    const before = p.metrics, ev = (p.changes?.Exposure2012 ?? p.baseline.Exposure2012) - p.baseline.Exposure2012;
-    if (before?.clip && metrics?.clip && metrics.clip.channel - before.clip.channel > 0.01)
-      issues.push('Highlight clipping rose by ' + ((metrics.clip.channel - before.clip.channel) * 100).toFixed(1) + '% of the frame; check bright areas.');
-    // Only exposure is predictable from the preview; tone sliders also move faces in shadow.
-    const toneChanged = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'].some(k => k in (p.changes || {}));
-    if (ev && !toneChanged && before?.subject?.method === 'face' && metrics?.subject?.method === 'face') {
-      const achieved = Math.log2(metrics.subject.luma / before.subject.luma);
-      if (Math.abs(achieved - ev) > 0.3) issues.push('Face brightness moved ' + achieved.toFixed(2) + ' EV (expected ' + ev.toFixed(2) + ' EV); review this frame.');
+    if (previewHash !== p.previewHash) {
+      const before = p.metrics, ev = (p.changes?.Exposure2012 ?? p.baseline.Exposure2012) - p.baseline.Exposure2012;
+      if (before?.clip && metrics?.clip && metrics.clip.channel - before.clip.channel > 0.01)
+        issues.push('Highlight clipping rose by ' + ((metrics.clip.channel - before.clip.channel) * 100).toFixed(1) + '% of the frame; check bright areas.');
+      // Only exposure is predictable from the preview; tone sliders also move faces in shadow.
+      const toneChanged = ['Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012'].some(k => k in (p.changes || {}));
+      if (ev && !toneChanged && before?.subject?.method === 'face' && metrics?.subject?.method === 'face') {
+        const achieved = Math.log2(metrics.subject.luma / before.subject.luma);
+        if (Math.abs(achieved - ev) > 0.3) issues.push('Face brightness moved ' + achieved.toFixed(2) + ' EV (expected ' + ev.toFixed(2) + ' EV); review this frame.');
+      }
+      if (['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint'].some(k => k in (p.changes || {})) && whiteCastRegression(before, metrics))
+        issues.push('White areas show a larger colour cast after the white-balance edit; check skin in Lightroom. This is an approximate check, not a quality score.');
     }
   } catch (e) {
     // The edit itself was verified from Lightroom's values; only this brightness check is skipped.
@@ -366,6 +376,9 @@ async function doApply(client) {
     if (only && only.some(id => !candidates.includes(id))) throw new Error('An approved photo has no applicable edit');
     const approved = only ? candidates.filter(id => only.includes(id)) : candidates;
     if (!approved.length) throw new Error('No photos approved');
+    const references = new Map(s.scenes.filter(sc => sc.referenceApproved && sc.photos.some(id => approved.includes(id)))
+      .flatMap(sc => sc.photos.map(id => [id, s.photos[sc.reference]])));
+    for (const ref of new Set(references.values())) await checkReference(client, ref);
     const selection = new SelectionGuard(client, s.config.ids);
     await selection.full();
     journal.append('apply-started', {approved});
@@ -377,6 +390,7 @@ async function doApply(client) {
         emit('progress', {step: 'apply', phase: 'Writing approved edits', index: i + 1, total: approved.length, filename: p.filename});
         try { await selection.beforeWrite({last: i === approved.length - 1}); }
         catch (e) { if (e.kind === 'selection') { stoppedReason = e.message; break; } throw e; }
+        if (references.has(id)) await checkReference(client, references.get(id));
         const cur = await getDevelop(client, id);
         if (!sameIdentity(p.identity, cur.identity)) {
           journal.append('photo-stale', {photo: id, reason: 'The photo was moved or renamed, or a different catalog is open.'}); continue;
@@ -572,6 +586,33 @@ function doShow() {
   emit('complete', {state: 'read-only', session: view});
 }
 
+async function checkReference(client, p) {
+  const cur = await getDevelop(client, p.id);
+  if (!sameIdentity(p.identity, cur.identity) || diffSnapshot(p.snapshot, cur.snapshot).length)
+    throw new Error('The scene reference was edited or changed in Lightroom. Start a new pass to use it.');
+}
+
+async function doReference(client) {
+  const dir = safeDir(opt('session')), s = reload(dir);
+  if (!deriveStatus(s).actions.setReference) throw new Error('A scene reference can only change before applying this plan.');
+  const clear = flag('clear-reference');
+  const id = clear ? null : validateIDs([opt('id')])[0];
+  const scene = clear ? s.scenes.find(sc => sc.id === opt('scene')) : s.scenes.find(sc => sc.photos.includes(id));
+  if (!scene || (!clear && (!s.photos[id]?.baseline || s.photos[id].state === 'unsupported'))) throw new Error('Choose an analyzed photo in this session.');
+  if (!clear) await checkReference(client, s.photos[id]);
+  const journal = Journal.open(dir);
+  journal.append('plan-revision-started');
+  journal.append('scene-reference', {scene: scene.id, reference: clear ? groupScenes(scene.photos.map(id => s.photos[id]))[0]?.reference : id, approved: !clear});
+  const updated = reload(dir);
+  const decisions = decide({photos: Object.values(updated.photos), scenes: updated.scenes, policy: updated.policy, enabled: updated.config.enabled});
+  for (const [photo, decision] of Object.entries(decisions)) if (updated.photos[photo].state !== 'unsupported')
+    journal.append('photo-proposed', {photo, decision});
+  journal.append('plan-ready');
+  journal.close();
+  const view = writeViews(reload(dir));
+  emit('complete', {state: 'planned', dir, ...brief(view)});
+}
+
 function doDiscard() {
   requireConfirm('Discarding');
   const dir = safeDir(opt('session'));
@@ -602,9 +643,9 @@ async function doSelect(client) {
 
 // ---- Entry ----
 
-const MUTATING = new Set(['analyze', 'apply', 'restore', 'reconcile', 'discard']);
+const MUTATING = new Set(['analyze', 'apply', 'restore', 'reconcile', 'discard', 'reference']);
 async function main() {
-  if (!['doctor', 'inspect', 'analyze', 'apply', 'restore', 'reconcile', 'sessions', 'show', 'discard', 'select'].includes(mode)) throw new Error('Unknown mode');
+  if (!['doctor', 'inspect', 'analyze', 'apply', 'restore', 'reconcile', 'sessions', 'show', 'discard', 'select', 'reference'].includes(mode)) throw new Error('Unknown mode');
   if (mode === 'sessions') return doSessions();
   if (mode === 'show') return doShow();
   if (mode === 'doctor') return emit('complete', {state: 'read-only', ...(await runDoctor({live: flag('live')}))});
@@ -623,6 +664,7 @@ async function main() {
     else if (mode === 'apply') await doApply(client);
     else if (mode === 'restore') await doRestore(client);
     else if (mode === 'select') await doSelect(client);
+    else if (mode === 'reference') await doReference(client);
     else await doReconcile(client);
   } finally { await client.close(); }
 }

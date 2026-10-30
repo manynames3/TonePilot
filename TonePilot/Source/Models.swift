@@ -23,6 +23,7 @@ struct SelectedPhoto: Decodable, Identifiable, Hashable {
 }
 
 struct Actions: Decodable, Equatable, Hashable {
+    let setReference: Bool?
     let resumeAnalysis: Bool; let apply: Bool; let restore: Bool; let reconcile: Bool; let discard: Bool
 }
 
@@ -58,7 +59,7 @@ struct SessionView: Decodable, Identifiable {
 struct Policy: Decodable { let look: String; let strength: String; let fraction: Double; let minConfidence: Double; let caps: [String: Double] }
 struct SessionError: Decodable, Hashable { let at: String?; let phase: String?; let message: String }
 struct SceneInfo: Decodable, Identifiable, Hashable {
-    let id: String; let photos: [String]; let reference: String?
+    let id: String; let photos: [String]; let reference: String?; let referenceApproved: Bool?
     let startedBecause: [String]?; let span: Span?; let flash: Bool?
     struct Span: Decodable, Hashable { let from: String; let to: String }
 }
@@ -68,6 +69,7 @@ struct PhotoView: Decodable, Identifiable, Hashable {
     let format: String; let scene: String?; let approved: Bool
     let changes: [ChangeRow]
     let reason: String; let rationale: [String]; let warnings: [String]
+    let reviewRecommended: Bool?
     let confidence: Double?; let confidenceNote: String?
     let ai: AIJudgment?; let aiError: String?
     let measurement: Measurement?; let after: After?
@@ -75,7 +77,7 @@ struct PhotoView: Decodable, Identifiable, Hashable {
     let write: Outcome?; let restore: Outcome?
 
     var isApplicable: Bool { state == "proposed" || state == "apply-failed" }
-    var needsReview: Bool { ["flagged", "stale", "apply-mismatch", "restore-mismatch", "writing", "restoring", "apply-failed"].contains(state) || restoreConflict != nil }
+    var needsReview: Bool { ["flagged", "stale", "apply-mismatch", "restore-mismatch", "writing", "restoring", "apply-failed"].contains(state) || restoreConflict != nil || reviewRecommended == true }
 }
 
 struct ChangeRow: Decodable, Identifiable, Hashable {

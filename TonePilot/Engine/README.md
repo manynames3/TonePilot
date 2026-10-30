@@ -1,4 +1,4 @@
-# TonePilot engine — v0.5
+# TonePilot engine — v0.6.2
 
 A Node.js process the Mac app launches for every operation. It is the only component that talks to Lightroom, and the only one that can write.
 
@@ -23,6 +23,7 @@ Mac app ──args──▶ engine.mjs ──TCP (localhost, token)──▶ Ton
 | `reconcile --session dir` | read (+journal) | yes | Settle writes whose outcome was never recorded |
 | `sessions`, `show --session dir` | none | no | Views rebuilt from journals |
 | `discard --session dir --confirm` | none | yes | Hide a plan that changed nothing |
+| `reference --session dir --id …` | read + journal | yes | Keep analyzed settings as scene reference; replan before any apply; `--scene … --clear-reference` resets |
 | `select --ids …` | selection only | no (refused while locked) | "Show in Lightroom"; needs TonePilot's plug-in |
 
 ## Modules
@@ -38,6 +39,7 @@ Mac app ──args──▶ engine.mjs ──TCP (localhost, token)──▶ Ton
 | `policy.mjs` | Looks and strengths as numbers |
 | `scenes.mjs` | Lighting-scene segmentation and reference frames |
 | `harmonize.mjs` | Scene-consistent, policy-bounded decisions |
+| `assessments.mjs` | Exact-input reuse from existing private journals; explicit scene-reference choices and resets carried only to matching inputs |
 | `ai.mjs` | Prompt, strict output schema, Codex subprocess (one photo, or an opt-in batch of one scene's photos), bounded pool |
 | `claude.mjs`, `cloud.mjs` | Other assessment providers (`TONEPILOT_AI_PROVIDER`): Claude on Amazon Bedrock or the Anthropic API; TonePilot Cloud (`TONEPILOT_CLOUD_URL`, `TONEPILOT_LICENSE`, backend in `TonePilot/Cloud`) |
 | `lightroom.mjs` | Client factory (`connectLightroom`: TonePilot's plug-in if its `bridge.json` exists and it answers, else MCP); MCP client; pinned/bundled bridge; typed errors; apply-time selection interlock (`SelectionGuard`) |
@@ -62,7 +64,7 @@ With TonePilot's plug-in, `apply` asks Lightroom for a Develop snapshot named "T
 
 ## Journal records
 
-`session-created`, `photo-baseline`, `photo-unsupported`, `photo-measured`, `scenes`, `photo-assessed`, `photo-proposed`, `plan-ready`, `analysis-failed`, `analysis-resumed`, `apply-started`, `photo-stale`, `photo-snapshot`, `write-intent`, `write-result`, `post-check`, `apply-finished`, `restore-started`, `restore-conflict`, `restore-intent`, `restore-result`, `restore-finished`, `session-error`, `discarded`. Unknown types are ignored (forward compatible).
+`session-created`, `photo-baseline`, `photo-unsupported`, `photo-measured`, `scenes`, `photo-assessed`, `photo-proposed`, `plan-revision-started`, `scene-reference`, `plan-ready`, `analysis-failed`, `analysis-resumed`, `apply-started`, `photo-stale`, `photo-snapshot`, `write-intent`, `write-result`, `post-check`, `apply-finished`, `restore-started`, `restore-conflict`, `restore-intent`, `restore-result`, `restore-finished`, `session-error`, `discarded`. Unknown types are ignored (forward compatible).
 
 Photo states: `pending → baselined → proposed | skipped | flagged | unsupported → (stale) | writing → applied | apply-mismatch | apply-failed → restoring → restored | restore-mismatch`.
 
@@ -76,3 +78,11 @@ Photo states: `pending → baselined → proposed | skipped | flagged | unsuppor
 ## Environment
 
 `TONEPILOT_RUNS_DIR`, `TONEPILOT_CODEX`, `TONEPILOT_ANALYZER`, `TONEPILOT_MCP_SERVER` (bundled bridge), `TONEPILOT_PARENT_PID`, `TONEPILOT_SETTLE_MS`, `TONEPILOT_AI_CONCURRENCY` (1–4, default 2), `TONEPILOT_AI_BATCH` (photos per model call, 1–6, default 1; see EVIDENCE.md), `TONEPILOT_WRITE_TIMEOUT_MS`, `TONEPILOT_SELECTION_FULL_EVERY` (default 25), `TONEPILOT_BRIDGE_FILE` (default `~/Library/Application Support/TonePilot/bridge.json`). Tests also use `TONEPILOT_NPX` / `TONEPILOT_MCP_ARGS` to substitute the mock MCP bridge and point `TONEPILOT_BRIDGE_FILE` at the mock plug-in (or at nothing).
+
+## Consistency and result checks
+
+Single-photo analysis reuses a successful assessment only for identical observed photo settings, preview, measurements, scene context, prompt/schema, engine version and provider/model. `--fresh-assessment` makes a fresh call; batched assessments are always fresh. Old journals without reuse keys, discarded/incomplete/damaged sessions, and changed inputs are excluded. Reuse stats name the source session and record zero new tokens/time. Provider comparisons request fresh assessments; repeatability scoring rejects reused judgments.
+
+An approved scene reference is journaled before replanning and keeps its analyzed settings. Exposure requires a reliable face on the reference; RAW WB guides only frames without their own skin correction. Changed reference identity/settings are refused before approval and dependent writes. A plan revision cannot be applied until complete, and cannot start after an apply attempt. Explicit reference timestamps, including resets in older sessions, govern exact-matching future passes.
+
+Usable full-person highlight measurements protect the detected people and clothing; missing/invalid/incomplete evidence retains whole-frame protection. Possible background clipping is disclosed. A fresh after-edit preview also checks for a gross increase in white-surface cast. These are approximate checks; neither read-back nor these measurements establishes photographic quality. No automatic corrective write follows a warning.

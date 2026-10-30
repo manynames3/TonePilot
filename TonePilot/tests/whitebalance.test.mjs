@@ -387,3 +387,14 @@ test('JPEG/HEIC: each photo keeps its own skin correction instead of being blend
   assert.equal(d.a.changes.IncrementalTint, -7, JSON.stringify(d.a.changes));   // 80% of −9, not pulled toward −6
   assert.equal(d.b.changes.IncrementalTint, -2, JSON.stringify(d.b.changes));
 });
+
+test('white-cast result checks ignore missing, tiny, changed-area or improving references', async () => {
+  const {whiteCastRegression} = await import('../Engine/colour.mjs');
+  const m = (a, fraction = 0.1) => ({width: 640, whites: {a, b: 0, fraction}});
+  assert.equal(whiteCastRegression(m(2), m(5)), true);
+  assert.equal(whiteCastRegression(m(2), m(0.5)), false);
+  assert.equal(whiteCastRegression(m(2), null), false);
+  assert.equal(whiteCastRegression(m(2), m(5, 0.005)), false);
+  assert.equal(whiteCastRegression(m(2), m(5, 0.4)), false);
+  assert.equal(whiteCastRegression(m(2), {...m(5), width: 320}), false);
+});

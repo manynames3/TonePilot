@@ -61,7 +61,7 @@ function run({ids, runs, out, tries}) {
       const [modelId, effort] = model.join(':').split('@');
       if (modelId) env.TONEPILOT_AI_MODEL = modelId; else delete env.TONEPILOT_AI_MODEL;
       if (effort) env.TONEPILOT_AI_EFFORT = effort; else delete env.TONEPILOT_AI_EFFORT;
-      const r = spawnSync(process.execPath, [engine, '--mode', 'analyze', '--ids', ids], {env, encoding: 'utf8', timeout: 30 * 60000});
+      const r = spawnSync(process.execPath, [engine, '--mode', 'analyze', '--ids', ids, '--fresh-assessment'], {env, encoding: 'utf8', timeout: 30 * 60000});
       const complete = (r.stdout || '').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return {}; } }).find(e => e.type === 'complete');
       if (!complete) { console.error(t + ' run ' + (i + 1) + ' failed: ' + (r.stdout || '').trim().split('\n').pop()); continue; }
       dirs.push(complete.dir);

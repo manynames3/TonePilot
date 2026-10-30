@@ -24,10 +24,10 @@ struct SessionDetailView: View {
         VStack(spacing: 0) {
             Page(maxWidth: 900) {
                 header
-                ForEach(Array(session.scenes.enumerated()), id: \.element.id) { index, scene in
+                ForEach(Array(session.scenes.enumerated()).filter { !ui.reviewOnly || !visiblePhotos($0.element).isEmpty }, id: \.element.id) { index, scene in
                     sceneSection(scene, index: index + 1)
                 }
-                let loose = session.photos.filter { $0.scene == nil }
+                let loose = session.photos.filter { $0.scene == nil && (!ui.reviewOnly || $0.needsReview) }
                 if !loose.isEmpty {
                     SectionLabel(step: nil, title: "Not analyzed", trailing: Format.plural(loose.count, "photo")).padding(.top, 28).padding(.bottom, 10)
                     VStack(spacing: 10) { ForEach(loose) { PhotoCard(photo: $0, session: session, isReference: false, hidden: commonWarnings) } }
@@ -38,16 +38,30 @@ struct SessionDetailView: View {
         .modifier(Confirmations(model: model, session: session, ui: ui, approvedCount: approvedApplicable.count))
     }
 
+    private func visiblePhotos(_ scene: SceneInfo) -> [PhotoView] {
+        scene.photos.compactMap { id in session.photos.first { $0.id == id } }.filter { !ui.reviewOnly || $0.needsReview }
+    }
+
     private func sceneSection(_ scene: SceneInfo, index: Int) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(step: "SCENE \(index)", title: Format.plural(scene.photos.count, "photo"),
-                         trailing: scene.flash.map { $0 ? "Flash" : "Ambient light" })
+            HStack {
+                SectionLabel(step: "SCENE \(index)", title: Format.plural(scene.photos.count, "photo"),
+                             trailing: scene.flash.map { $0 ? "Flash" : "Ambient light" })
+                Menu {
+                    Button("Show scene in Lightroom") { Task { await model.showInLightroom(session.photos.filter { scene.photos.contains($0.id) }) } }
+                    if scene.referenceApproved == true, session.actions.setReference == true {
+                        Button("Use automatic reference") { Task { await model.setReference(nil, scene: scene, in: session) } }
+                    }
+                } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Theme.muted) }
+                .menuStyle(.borderlessButton).fixedSize()
+                .disabled(model.busy || session.running != nil)
+            }
             if index > 1, let reasons = scene.startedBecause, !reasons.isEmpty {
                 Text("New lighting scene: " + reasons.joined(separator: ", ")).font(Theme.secondary).foregroundStyle(Theme.muted)
             }
             VStack(spacing: 10) {
-                ForEach(scene.photos.compactMap { id in session.photos.first { $0.id == id } }) { photo in
-                    PhotoCard(photo: photo, session: session, isReference: scene.reference == photo.id, hidden: commonWarnings)
+                ForEach(visiblePhotos(scene)) { photo in
+                    PhotoCard(photo: photo, session: session, isReference: scene.reference == photo.id, isApprovedReference: scene.referenceApproved == true, hidden: commonWarnings)
                 }
             }
         }
@@ -77,6 +91,9 @@ struct SessionDetailView: View {
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line, lineWidth: 0.7))
             .padding(.top, 8)
             attentionCallout
+            if !review.isEmpty || ui.reviewOnly {
+                Toggle("Only photos that need review", isOn: $ui.reviewOnly).font(Theme.secondaryStrong)
+            }
             ForEach(Array(commonWarnings).sorted(), id: \.self) { w in
                 Label(w, systemImage: "info.circle").font(Theme.secondary).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
@@ -112,11 +129,14 @@ struct SessionDetailView: View {
 
     private var actionBar: some View {
         HStack(spacing: 14) {
-            if !review.isEmpty {
-                Button { model.copyFilenames(review) } label: { Label("Copy \(Format.plural(review.count, "filename"))", systemImage: "doc.on.doc") }
-                    .buttonStyle(QuietButtonStyle(color: Theme.ink))
-                    .help("Paste into Lightroom's Library Filter text search to see the photos that need review")
-            }
+            Menu {
+                Button("Show all photos") { Task { await model.showInLightroom(session.photos) } }
+                if !review.isEmpty {
+                    Button("Show photos needing review") { Task { await model.showInLightroom(review) } }
+                    Button("Copy review filenames") { model.copyFilenames(review) }
+                }
+            } label: { Label("Lightroom", systemImage: "arrow.up.forward.app").font(Theme.secondaryStrong) }
+            .menuStyle(.borderlessButton).fixedSize()
             Button { model.revealSession(session) } label: { Label("Report", systemImage: "doc.text") }
                 .buttonStyle(QuietButtonStyle(color: Theme.ink))
             Spacer()
@@ -160,6 +180,7 @@ struct SessionDetailView: View {
 }
 
 final class SessionUIState: ObservableObject {
+    @Published var reviewOnly = false
     @Published var confirmApply = false
     @Published var confirmRestore = false
     @Published var confirmDiscard = false
@@ -214,6 +235,7 @@ struct PhotoCard: View {
     let photo: PhotoView
     let session: SessionView
     let isReference: Bool
+    var isApprovedReference: Bool = false
     var hidden: Set<String> = []
     @StateObject private var disclosure = Disclosure()
 
@@ -230,9 +252,19 @@ struct PhotoCard: View {
                 HStack(spacing: 8) {
                     Text(photo.filename).font(Theme.serif(17)).textSelection(.enabled)
                     if !photo.format.isEmpty { Chip(text: photo.format) }
-                    if isReference { Chip(text: "Scene reference", systemImage: "scope") }
+                    if isReference { Chip(text: isApprovedReference ? "Approved reference" : "Scene reference", systemImage: "scope") }
                     Spacer(minLength: 8)
                     StatusPill(label: photo.stateLabel, tone: photoTone(photo.state))
+                    Menu {
+                        Button("Show in Lightroom") { Task { await model.showInLightroom([photo]) } }
+                        if session.actions.setReference == true, photo.scene != nil, photo.state != "unsupported",
+                           let scene = session.scenes.first(where: { $0.id == photo.scene }) {
+                            Button("Keep as scene reference") { Task { await model.setReference(photo, scene: scene, in: session) } }
+                                .help("Keep this frame as analyzed. Start a new pass to use a later Lightroom edit. The revised plan needs your approval again.")
+                        }
+                    } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Theme.muted) }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .disabled(model.busy || session.running != nil)
                 }
                 if !photo.changes.isEmpty { ChangeTable(changes: photo.changes, state: photo.state) }
                 // Lead with what TonePilot decided and why; the AI's view is supporting evidence.

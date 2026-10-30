@@ -171,7 +171,7 @@ test('the engine through TonePilot Cloud reaches the same decisions as Codex', (
     assert.deepEqual(decisions(cloud, batch.complete.dir), expected);
     assert.deepEqual(cloud.cloudLog().at(-1).images, 3, 'one call for the scene');
 
-    const expired = cloud.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS)],
+    const expired = cloud.run(['--mode', 'analyze', '--ids', JSON.stringify(IDS), '--fresh-assessment'],
       {TONEPILOT_LICENSE: signLicense('test-license', Math.floor(Date.now() / 1000) - 60, TEST_SECRET)});
     assert.notEqual(expired.status, 0);
     assert.match(expired.error.message, /TonePilot license expired/);

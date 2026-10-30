@@ -54,6 +54,16 @@ function faceLuma(p) {
   if (s?.method !== 'face' || !(s.luma > LIMITS.minFaceLuma) || !reliablePreview(p.metrics)) return null;
   return (s.area ?? 1) >= LIMITS.minFaceArea ? s.luma : null;
 }
+// Use complete people-region measurements only; older or unreliable measurements retain
+// the whole-frame highlight check. Every detected face must be covered by the analyzer.
+function exposureHighlights(p) {
+  const h = p.metrics?.subjectHighlights;
+  if (!faceLuma(p) || h?.method !== 'people' || !(h.fraction > 0 && h.fraction <= 1) ||
+      !Number.isFinite(h.clip?.channel) || h.clip.channel < 0 || h.clip.channel > 1 ||
+      !Array.isArray(h.clipAtEV) || h.clipAtEV.length !== 20 ||
+      h.clipAtEV.some((v, i, a) => !Number.isFinite(v) || v < h.clip.channel || v > 1 || (i > 0 && v < a[i - 1]))) return p.metrics;
+  return h;
+}
 function aiExposureEV(p) {
   const v = p.ai?.proposed?.Exposure2012;
   if (typeof v === 'number' && typeof p.baseline.Exposure2012 === 'number') return v - p.baseline.Exposure2012;
@@ -101,16 +111,16 @@ export function sceneExposureTarget(anchors, biasEV) {
   return {target: 2 ** (median(agreeing.map(l => l.v)) + biasEV), agreeing: agreeing.map(l => l.id), outliers};
 }
 
-function decideExposure(scene, eligible, policy, out) {
-  const anchors = eligible.filter(p => out[p.id].allow.exposure && !out[p.id].consumer && faceLuma(p) && aiExposureEV(p) !== null)
+function decideExposure(scene, eligible, policy, out, reference) {
+  const anchors = reference && faceLuma(reference) ? [{id: reference.id, face: faceLuma(reference), ev: 0}] : eligible.filter(p => out[p.id].allow.exposure && !out[p.id].consumer && faceLuma(p) && aiExposureEV(p) !== null)
     .map(p => ({id: p.id, face: faceLuma(p), ev: aiExposureEV(p)}));
-  const {target, agreeing, outliers} = sceneExposureTarget(anchors, policy.exposureBiasEV);
+  const {target, agreeing, outliers} = sceneExposureTarget(anchors, reference ? 0 : policy.exposureBiasEV);
   // Faces differ for two reasons: exposure, and the people themselves. Frames with the same
   // effective exposure (camera settings plus the photo's current Lightroom exposure) in the
   // same light differ because of their subjects (a darker or lighter complexion, a turned
   // face): they all get the scene's shared judgment rather than being pulled to one face.
   // Flash output varies shot to shot, so flash frames are always matched by face.
-  const effectiveEV = Object.fromEntries(eligible.map(p => {
+  const effectiveEV = Object.fromEntries([...eligible, ...(reference ? [reference] : [])].map(p => {
     const f = sceneFeatures(p);
     return [p.id, scene.flash || f.flash || !Number.isFinite(f.ev) ? null : f.ev - (p.baseline.Exposure2012 || 0)];
   }));
@@ -126,14 +136,14 @@ function decideExposure(scene, eligible, policy, out) {
     let ev = null, why;
     const face = faceLuma(p);
     // Name the look when it, not a correction, is what moves exposure.
-    const look = policy.exposureBiasEV ? ', including the ' + policy.look + ' look (' + signed(policy.exposureBiasEV, 1) + ' EV target)' : '';
+    const look = !reference && policy.exposureBiasEV ? ', including the ' + policy.look + ' look (' + signed(policy.exposureBiasEV, 1) + ' EV target)' : '';
     if (target !== null && face && !outliers.includes(p.id) && sameExposure(p) && shared !== null) {
-      ev = shared + policy.exposureBiasEV;
-      why = 'Same exposure and light as this scene: its shared judgment (' + agreeing.length + ' frame' + (agreeing.length > 1 ? 's' : '') +
+      ev = shared + (reference ? 0 : policy.exposureBiasEV);
+      why = reference ? 'Same exposure and light as your approved reference; differences between people kept' : 'Same exposure and light as this scene: its shared judgment (' + agreeing.length + ' frame' + (agreeing.length > 1 ? 's' : '') +
         ') was used, keeping differences between people' + look;
     } else if (target !== null && face && !outliers.includes(p.id)) {
       ev = Math.log2(target / face);
-      why = 'Face brightness matched to the scene (' + agreeing.length + ' agreeing frame' + (agreeing.length > 1 ? 's' : '') + look + ')';
+      why = reference ? 'Face brightness matched to your approved reference' : 'Face brightness matched to the scene (' + agreeing.length + ' agreeing frame' + (agreeing.length > 1 ? 's' : '') + look + ')';
     } else if (aiExposureEV(p) !== null) {
       ev = aiExposureEV(p) + policy.exposureBiasEV;
       const s = p.metrics?.subject;
@@ -147,13 +157,20 @@ function decideExposure(scene, eligible, policy, out) {
       continue;
     }
     if (ev > 0) {
-      const clipped = newClipFraction(p.metrics, ev);
+      const highlights = exposureHighlights(p);
+      const subject = highlights !== p.metrics;
+      const clipped = newClipFraction(highlights, ev);
+      if (subject) {
+        d.rationale.push('Highlight protection measured across the detected people, including clothing.');
+        if (newClipFraction(p.metrics, ev) > policy.maxNewClipFraction)
+          d.warnings.push('Brightening may clip more of the background; the detected people have their own highlight check.');
+      }
       if (clipped === null) d.warnings.push('Highlights were not measured; check bright areas after applying.');
       else if (clipped > policy.maxNewClipFraction) {
         let safe = ev;
-        while (safe > 0 && newClipFraction(p.metrics, safe) > policy.maxNewClipFraction) safe -= 0.05;
+        while (safe > 0 && newClipFraction(highlights, safe) > policy.maxNewClipFraction) safe -= 0.05;
         safe = Math.max(0, safe);
-        d.rationale.push('Brightening limited to ' + signed(safe) + ' EV to protect highlight detail.');
+        d.rationale.push('Brightening limited to ' + signed(safe) + ' EV to protect ' + (subject ? 'highlight detail on the people.' : 'highlight detail.'));
         ev = safe;
         if (ev < policy.exposureDeadbandEV) continue;
       }
@@ -171,7 +188,7 @@ function decideExposure(scene, eligible, policy, out) {
   }
 }
 
-function decideWhiteBalance(scene, eligible, policy, out) {
+function decideWhiteBalance(scene, eligible, policy, out, reference) {
   decideRelativeWhiteBalance(eligible.filter(p => out[p.id].allow.wb && p.capabilities?.wbMode === 'relative'), policy, out);
   const wb = eligible.filter(p => out[p.id].allow.wb && p.capabilities?.wbMode !== 'relative');
   if (!wb.length) return;
@@ -189,6 +206,9 @@ function decideWhiteBalance(scene, eligible, policy, out) {
       const tints = wb.map(p => p.baseline.Tint);
       if (Math.max(...tints) - Math.min(...tints) > 4) targetTint = median(tints);
     }
+  }
+  if (reference?.capabilities?.wbMode === 'kelvin') {
+    targetMired = mired(reference.baseline.Temperature); targetTint = reference.baseline.Tint; source = 'reference';
   }
   for (const p of wb) {
     const d = out[p.id];
@@ -214,7 +234,7 @@ function decideWhiteBalance(scene, eligible, policy, out) {
         if (Math.abs(k - p.baseline.Temperature) >= 1) {
           d.changes.Temperature = k;
           d.rationale.push((source === 'drift' && !alone ? 'White balance synced to the scene (auto white balance drifted between frames)' :
-            alone ? 'White balance set for the skin' : 'White balance aligned with the scene') + ': ' + p.baseline.Temperature + ' K → ' + k + ' K.');
+            alone ? 'White balance set for the skin' : source === 'reference' ? 'White balance aligned with your approved reference' : 'White balance aligned with the scene') + ': ' + p.baseline.Temperature + ' K → ' + k + ' K.');
           if (Math.abs(m - (baseM + dm)) > 0.5) d.rationale.push('Temperature limited by the ' + policy.strength + ' cap.');
         }
       }
@@ -404,7 +424,13 @@ export function decide({photos: input, scenes, policy, enabled}) {
   for (const scene of scenes) {
     const members = scene.photos.map(id => byId[id]).filter(Boolean);
     const eligible = [];
+    const reference = scene.referenceApproved ? members.find(p => p.id === scene.reference && p.baseline && p.state !== 'unsupported') : null;
     for (const p of members) {
+      if (p === reference) {
+        out[p.id] = {status: 'skipped', changes: {}, reason: 'Your approved scene reference; current settings kept.',
+          rationale: [], warnings: [], confidence: p.ai?.confidence ?? null};
+        continue;
+      }
       const g = gate(p, policy);
       if (g?.status) { out[p.id] = {status: g.status, changes: {}, reason: g.reason || '', rationale: [], warnings: [], confidence: p.ai?.confidence ?? null}; continue; }
       // Deliberate looks are preserved in every direction; True to scene also keeps creative colour.
@@ -426,9 +452,10 @@ export function decide({photos: input, scenes, policy, enabled}) {
         : 'Mixed lighting: white balance left for you to judge.');
       out[p.id] = d; eligible.push(p);
     }
-    decideExposure(scene, eligible, policy, out);
-    decideWhiteBalance(scene, eligible, policy, out);
+    decideExposure(scene, eligible, policy, out, reference && faceLuma(reference) ? reference : null);
+    decideWhiteBalance(scene, eligible, policy, out, reference);
     decideTone(scene, eligible, policy, out);
+    if (reference && !faceLuma(reference)) out[reference.id].rationale.push('No reliable face measurement on this reference; exposure uses the scene assessments.');
     // Below the bar only what the measurement confirmed goes ahead: drop the axes it did not.
     for (const p of eligible) {
       const d = out[p.id];
@@ -441,9 +468,14 @@ export function decide({photos: input, scenes, policy, enabled}) {
     for (const p of eligible) {
       const d = out[p.id];
       if (d.allow.wb && (p.ai.skinTone || p.wbEvidence)) d.rationale.push(skinToneLine(p, d));
-      if (d.allow.wb && p.wbEvidence?.disagree) d.warnings.push('The AI and the measured ' + p.wbEvidence.cast.source + ' disagree on the white-balance direction; check this photo.');
-      if (p.wbEvidence?.source === 'measured' && ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint'].some(k => k in d.changes))
+      if (d.allow.wb && p.wbEvidence?.disagree) {
+        d.reviewRecommended = true;
+        d.warnings.push('The AI and the measured ' + p.wbEvidence.cast.source + ' disagree on the white-balance direction; check this photo.');
+      }
+      if (p.wbEvidence?.source === 'measured' && ['Temperature', 'Tint', 'IncrementalTemperature', 'IncrementalTint'].some(k => k in d.changes)) {
+        d.reviewRecommended = true;
         d.warnings.push('White balance changed on the measurement alone (the AI judged the skin natural); check this photo.');
+      }
       delete d.allow; delete d.consumer; delete d.only;
       if (!Object.keys(d.changes).length) {
         d.status = 'skipped';

@@ -142,9 +142,40 @@ func regionStats(_ px: Pixels, _ box: CGRect) -> [String: Any]? {
 
 func topLeft(_ r: CGRect) -> CGRect { CGRect(x: r.minX, y: 1 - r.maxY, width: r.width, height: r.height) }
 
+// Union of full-person rectangles; retaining clothing and any background inside the
+// rectangles is conservative. An uncovered face makes the engine use the whole frame.
+func peopleHighlights(_ px: Pixels, people: [CGRect], faces: [CGRect]) -> [String: Any]? {
+    let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
+    guard !people.isEmpty, !faces.isEmpty,
+          people.allSatisfy({ !$0.isEmpty && unit.contains($0) }),
+          faces.allSatisfy({ face in people.contains { $0.contains(face) } }) else { return nil }
+    var count = 0, clipped = 0
+    var roomCounts = [Int](repeating: 0, count: 20)
+    for y in 0..<px.height { for x in 0..<px.width {
+        let point = CGPoint(x: (Double(x) + 0.5) / Double(px.width), y: (Double(y) + 0.5) / Double(px.height))
+        guard people.contains(where: { $0.contains(point) }) else { continue }
+        count += 1
+        let (r, g, b) = px.rgb(x, y)
+        if max(r, g, b) >= channelClip { clipped += 1; continue }
+        let mx = max(toLinear(r), toLinear(g), toLinear(b))
+        if mx > 0 {
+            let room = log2(clipLinear / mx)
+            if room <= 1 {
+                let k = max(0, Int((room / 0.05).rounded(.up)) - 1)
+                for j in k..<20 { roomCounts[j] += 1 }
+            }
+        }
+    } }
+    guard count > 0 else { return nil }
+    return ["method": "people", "fraction": round4(Double(count) / Double(px.width * px.height)),
+            "clip": ["channel": round4(Double(clipped) / Double(count))],
+            "clipAtEV": roomCounts.map { round4(Double(clipped + $0) / Double(count)) }]
+}
+
 func subjectStats(_ image: CGImage, _ px: Pixels) -> [String: Any] {
     let faceRequest = VNDetectFaceRectanglesRequest()
     let humanRequest = VNDetectHumanRectanglesRequest()
+    humanRequest.upperBodyOnly = false
     let handler = VNImageRequestHandler(cgImage: image, options: [:])
     try? handler.perform([faceRequest, humanRequest])
     var faces = [[String: Any]]()
@@ -171,7 +202,12 @@ func subjectStats(_ image: CGImage, _ px: Pixels) -> [String: Any] {
                        "area": round4(box.width * box.height)]
         }
     }
-    return ["faces": faces, "persons": persons.count, "subject": subject]
+    var result: [String: Any] = ["faces": faces, "persons": persons.count, "subject": subject]
+    if let highlights = peopleHighlights(px, people: persons.map { topLeft($0.boundingBox) },
+                                        faces: (faceRequest.results ?? []).map { topLeft($0.boundingBox) }) {
+        result["subjectHighlights"] = highlights
+    }
+    return result
 }
 
 func exifFromOriginal(_ path: String) -> [String: Any]? {
@@ -200,7 +236,7 @@ func analyze(_ image: CGImage, original: String?) throws -> [String: Any] {
     let px = try Pixels(image)
     var out = globalStats(px)
     for (k, v) in subjectStats(image, px) { out[k] = v }
-    out["version"] = 1
+    out["version"] = 2
     out["width"] = image.width; out["height"] = image.height
     if let original, let exif = exifFromOriginal(original) { out["exif"] = exif }
     out["ms"] = Int(Date().timeIntervalSince(started) * 1000)
@@ -270,6 +306,22 @@ func selftest() -> Bool {
             check("\(name) JPEG cast direction", whites["fraction"]! > 0.99 && sign * whites["a"]! > 1.5,
                   "\(whites)")
         }
+        let personBox = CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
+        let faceBox = CGRect(x: 0.4, y: 0.3, width: 0.2, height: 0.2)
+        let backlit = try Pixels(solidImage(200, 200) { x, y in
+            x >= 50 && x < 150 && y >= 50 && y < 150 ? (118, 118, 118) : (235, 235, 235)
+        })
+        let subject = peopleHighlights(backlit, people: [personBox, personBox], faces: [faceBox])!
+        let subjectCurve = subject["clipAtEV"] as! [Double]
+        let wholeFrame = globalStats(backlit)
+        check("people highlights exclude bright background and count overlap once", subject["fraction"] as! Double == 0.25 && subjectCurve.last! == 0 &&
+              (wholeFrame["clipAtEV"] as! [Double])[9] > 0.7,
+              "\(subject)")
+        let clothing = try Pixels(solidImage(200, 200) { x, _ in x < 100 ? (235, 235, 235) : (118, 118, 118) })
+        let clothed = peopleHighlights(clothing, people: [personBox], faces: [faceBox])!
+        check("white clothing retains highlight protection", (clothed["clipAtEV"] as! [Double])[9] >= 0.49, "\(clothed)")
+        check("uncovered face rejects people highlight scope", peopleHighlights(backlit, people: [personBox], faces: [CGRect(x: 0, y: 0, width: 0.1, height: 0.1)]) == nil, "")
+        check("missing people reject subject highlight scope", peopleHighlights(backlit, people: [], faces: [faceBox]) == nil, "")
         let grid = ramp["grid"] as! [Double]
         check("grid descriptor", grid.count == 48 && grid[0] < grid[9], "cells \(grid.count / 3)")
     } catch {
