@@ -322,6 +322,7 @@ async function postCheck(client, journal, p, id) {
       previewHash = hash(savePreview(jpeg, file));
       metrics = runAnalyzer(file, null);
     } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+    if (!metrics) issues.push('The after-edit visual check was unavailable. Review the photo in Lightroom; its setting read-back is recorded separately.');
     if (previewHash === p.previewHash) issues.push('Lightroom\'s preview has not updated yet; check the photo visually.');
     if (previewHash !== p.previewHash) {
       const before = p.metrics, ev = (p.changes?.Exposure2012 ?? p.baseline.Exposure2012) - p.baseline.Exposure2012;

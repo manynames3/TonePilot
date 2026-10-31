@@ -11,7 +11,7 @@ const id = fs.readFileSync(file, 'utf8').split(':')[1];
 const state = JSON.parse(fs.readFileSync(process.env.TONEPILOT_MOCK_STATE, 'utf8'));
 const photo = state.photos[id];
 const fx = photo.metrics;
-if (!fx) process.exit(2);
+if (!fx || (fx.failAfterWrite && state.writes.some(w => w.id === id))) process.exit(2);
 const scale = 2 ** (photo.settings.exposure - (fx.atExposure ?? 0));
 const luma = fx.faceLuma ? fx.faceLuma * scale : null;
 const wbChanged = photo.settings.tint !== (fx.atTint ?? 4) || photo.settings.temperature !== (fx.atTemperature ?? 5200);

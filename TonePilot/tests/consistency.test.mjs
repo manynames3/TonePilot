@@ -138,3 +138,15 @@ test('model repeatability reports reject reused assessments rather than reportin
     assert.throws(() => repeatability([loadSession(a), loadSession(b)]), /fresh-assessment|reused/i);
   } finally { x.cleanup(); }
 });
+
+test('an unavailable after-edit measurement is shown as a review warning while setting verification remains intact', () => {
+  const x = setup({photos: {101: rawPhoto('A.CR3', {metrics: {faceLuma: 0.12, clip: 0, failAfterWrite: true}})}});
+  try {
+    const dir = x.analyze(['101']);
+    assert.equal(x.run(['--mode', 'apply', '--session', dir, '--confirm']).status, 0);
+    const p = x.show(dir).photos[0];
+    assert.equal(p.write.outcome, 'verified');
+    assert.equal(p.reviewRecommended, true);
+    assert.ok(p.warnings.some(w => /visual check.*unavailable|could not.*measur/i.test(w)), JSON.stringify(p.warnings));
+  } finally { x.cleanup(); }
+});
