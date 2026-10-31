@@ -413,6 +413,8 @@ struct NewPassView: View {
             CorrectionRow(icon: "circle.lefthalf.filled", title: "White balance & skin", detail: "Temperature and tint on RAW files: casts, and drift between frames in the same light.", isOn: $model.fixWhiteBalance)
             CorrectionRow(icon: "sun.max", title: "Exposure", detail: "Subject brightness, matched across frames of the same scene; highlights protected.", isOn: $model.fixExposure)
             CorrectionRow(icon: "circle.dotted.circle", title: "Highlights & shadows", detail: "Recover detail while preserving depth.", isOn: $model.fixTone)
+            Toggle("Reassess unchanged photos", isOn: $model.freshAssessment).font(Theme.secondary)
+                .help("Ask the AI again. Otherwise matching assessments from your saved passes are reused for consistency.")
             Note(icon: "lock", text: "Never touched: crop, masks, profiles, HSL, presets, metadata, ratings or export.")
         }
         .disabled(model.busy)

@@ -5,7 +5,7 @@ import SwiftUI
 enum Route: Hashable { case setup, newPass, session(String) }
 
 struct Operation: Equatable {
-    enum Kind: String { case doctor, inspect, analyze, apply, restore, reconcile, discard }
+    enum Kind: String { case doctor, inspect, analyze, apply, restore, reconcile, discard, select, reference }
     let kind: Kind
     var title: String
     var detail: String = ""
@@ -23,6 +23,7 @@ final class AppModel: ObservableObject {
     @Published var doctor: DoctorReport?
     @Published var selection: SelectionReport?
     @Published var selectionError: String?
+    @Published var freshAssessment = false
     @Published var sessions: [SessionSummary] = []
     @Published var runningElsewhere: RunningEngine?
     @Published var route: Route = .newPass
@@ -44,6 +45,7 @@ final class AppModel: ObservableObject {
     // runner each time so browsing sessions can never redirect Stop to the wrong process.
     private let runner = EngineRunner()
     private var launched = false
+    private var hasShownPhotos = false
 
     var busy: Bool { operation != nil }
     var ready: Bool { doctor?.ready ?? false }
@@ -109,7 +111,7 @@ final class AppModel: ObservableObject {
         let idJSON = String(data: try! JSONSerialization.data(withJSONObject: ids), encoding: .utf8)!
         guard let data = await perform(.init(kind: .analyze, title: "Analyzing \(ids.count) photos"),
             ["--mode", "analyze", "--ids", idJSON, "--look", look, "--strength", strength,
-             "--wb", String(fixWhiteBalance), "--exposure", String(fixExposure), "--tone", String(fixTone)]) else { await loadSessions(); return }
+             "--wb", String(fixWhiteBalance), "--exposure", String(fixExposure), "--tone", String(fixTone)] + (freshAssessment ? ["--fresh-assessment"] : [])) else { await loadSessions(); return }
         await finish(data)
     }
 
@@ -120,6 +122,11 @@ final class AppModel: ObservableObject {
     }
 
     func apply(_ s: SessionView) async {
+        // Restore this pass's authorized selection after browsing a subset in Lightroom.
+        if hasShownPhotos {
+            guard await showInLightroom(s.photos) else { return }
+            hasShownPhotos = false
+        }
         let approved = s.photos.filter { $0.isApplicable && (approvals[s.id] ?? []).contains($0.id) }.map(\.id)
         guard !approved.isEmpty else { return }
         let only = String(data: try! JSONSerialization.data(withJSONObject: approved), encoding: .utf8)!
@@ -145,6 +152,29 @@ final class AppModel: ObservableObject {
                           ["--mode", "discard", "--session", s.dir, "--confirm"])
         await loadSessions()
         route = .newPass; session = nil
+    }
+
+    @discardableResult
+    func showInLightroom(_ photos: [PhotoView]) async -> Bool {
+        let ids = photos.map(\.id)
+        guard !ids.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ids),
+              let json = String(data: data, encoding: .utf8),
+              let result = await perform(.init(kind: .select, title: "Showing photos in Lightroom"), ["--mode", "select", "--ids", json]) else { return false }
+        hasShownPhotos = true
+        let response = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any]
+        guard response?["selected"] as? Int == ids.count else {
+            notice = Notice(title: "Some photos could not be shown", message: "Check the catalog and try again. No edits were made.")
+            return false
+        }
+        openLightroom()
+        return true
+    }
+
+    func setReference(_ photo: PhotoView?, scene: SceneInfo, in s: SessionView) async {
+        let args = ["--mode", "reference", "--session", s.dir] + (photo.map { ["--id", $0.id] } ?? ["--scene", scene.id, "--clear-reference"])
+        _ = await perform(.init(kind: .reference, title: "Updating the scene reference", sessionID: s.id), args)
+        approvals[s.id] = []
+        await refresh(s.id)
     }
 
     func stop() {
@@ -224,6 +254,8 @@ final class AppModel: ObservableObject {
         case .restore: return "Restore did not finish"
         case .analyze: return "Analysis did not finish"
         case .reconcile: return "Could not check Lightroom"
+        case .select: return "Could not show photos in Lightroom"
+        case .reference: return "Could not update the scene reference"
         default: return "TonePilot could not continue"
         }
     }

@@ -76,3 +76,9 @@ node TonePilot/Benchmarks/auto-judge.mjs <session-dir> --judge bedrock:global.an
 ```
 
 First real run (10 RAW photos, Claude Sonnet 4.6 on Bedrock): the judge rejected 10/10 wrong edits but called identical pairs "same" only 6/10, so it detects gross errors and cannot resolve TonePilot's small corrections (5 better / 3 worse was within its noise). Use it as a gross-error alarm, not a quality score. The output names photos and quotes the judge's descriptions: keep it private.
+
+## Fresh assessments and the next owner calibration
+
+Normal passes now reuse matching assessments. For independent model comparisons, run each analysis with `--fresh-assessment`; `compare-providers.mjs run` does this automatically. `repeatability.mjs` refuses sessions with reused judgments so it cannot report cached answers as fresh-model agreement.
+
+Start the owner calibration with about 20 RAW copies using the usual preset/profile. Capture the photographer's finished settings with `vs-photographer.mjs capture`, analyze matching copies in passes of at most 20, then compare and rate using `owner-review.mjs`. Keep those pilot photos separate from the held-out blind evaluation. The tools record evidence; thresholds and slider response are not calibrated until those ratings exist. Real writes/restores remain restricted to the approved G1 sandbox protocol.

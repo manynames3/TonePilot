@@ -11,6 +11,8 @@ import {loadSession} from '../Engine/session.mjs';
 const STEP = {Exposure2012: 0.1, Temperature: 100, Tint: 3, Highlights2012: 5, Shadows2012: 5, Whites2012: 5, Blacks2012: 5};
 
 export function repeatability(sessions) {
+  if (sessions.some(s => Object.values(s.photos).some(p => p.aiStats?.reusedFrom)))
+    throw new Error('Model repeatability needs fresh assessments. Analyze with --fresh-assessment; reused judgments cannot measure model noise.');
   const ids = sessions[0].order.filter(id => sessions.every(s => s.photos[id]));
   const rows = [];
   for (const id of ids) {

@@ -49,8 +49,10 @@ test('batched and per-photo journals have the same records and decisions', () =>
     assert.deepEqual(calls(x2), [1, 1, 1, 1]);
     const key = r => r.type + ':' + (r.photo || '');
     assert.deepEqual(inBatches.map(key).sort(), single.map(key).sort());
+    // Only single-photo calls carry an optional reuse key; all shared records remain identical.
+    const recordShape = ({key, ...r}) => shape(r);
     const pick = (j, type) => j.filter(r => r.type === type).sort((a, b) => a.photo.localeCompare(b.photo));
-    assert.deepEqual(pick(inBatches, 'photo-assessed').map(r => shape(r)), pick(single, 'photo-assessed').map(r => shape(r)));
+    assert.deepEqual(pick(inBatches, 'photo-assessed').map(recordShape), pick(single, 'photo-assessed').map(recordShape));
     assert.deepEqual(pick(inBatches, 'photo-assessed').map(r => r.ai), pick(single, 'photo-assessed').map(r => r.ai));
     assert.deepEqual(pick(inBatches, 'photo-proposed').map(r => r.decision), pick(single, 'photo-proposed').map(r => r.decision));
   } finally { x1.cleanup(); x2.cleanup(); }

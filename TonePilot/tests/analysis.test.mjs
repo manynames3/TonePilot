@@ -328,3 +328,59 @@ test('below the bar, a dark-face confirmation lets only exposure through: the un
   const keys = Object.keys(d[p.id].changes);
   assert.deepEqual(keys, ['Exposure2012'], keys.join(','));
 });
+
+test('a bright background does not hold back exposure when measured people have highlight room', () => {
+  const p = photo({ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.5}}, clipAtEV: Array(20).fill(0.08)});
+  p.metrics.subjectHighlights = {method: 'people', fraction: 0.4, clip: {channel: 0}, clipAtEV: Array(20).fill(0)};
+  const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL})[p.id];
+  assert.equal(d.changes.Exposure2012, 0.5, JSON.stringify(d));
+  assert.match(d.rationale.join(' '), /people|subject/i);
+  assert.ok(d.warnings.some(w => /background/i.test(w)), 'background clipping is disclosed');
+});
+
+test('an approved scene reference keeps its current values and guides exposure without changing complexions', () => {
+  const a = photo({face: 0.12, ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.5}}});
+  const b = photo({face: 0.06}); b.exif.shutterSpeed = '1/500 sec';
+  const c = photo({face: 0.08});
+  const sc = [{...scene([a, b, c])[0], referenceApproved: true}];
+  const d = decide({photos: [a, b, c], scenes: sc, policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.deepEqual(d[a.id].changes, {}, 'the approved baseline is already right');
+  assert.equal(d[b.id].changes.Exposure2012, 1, 'one stop of measured camera exposure drift');
+  assert.ok(!('Exposure2012' in d[c.id].changes), 'same camera exposure keeps another person\'s brightness');
+  assert.match(d[b.id].rationale.join(' '), /approved reference/i);
+});
+
+test('people highlight protection retains clothing and falls back on missing, invalid or unreliable measurements', () => {
+  const base = {method: 'people', fraction: 0.4, clip: {channel: 0}, clipAtEV: Array(20).fill(0)};
+  const fixtures = [null, {...base, clipAtEV: []}, {...base, clipAtEV: [0.2, ...Array(19).fill(0)]},
+    {...base, clip: {channel: NaN}}, {...base, fraction: 0}, {...base, clipAtEV: Array(20).fill(1.1)},
+    {...base, clipAtEV: Array(20).fill(0.1)}];
+  for (const h of fixtures) {
+    const p = photo({ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.5}}, clipAtEV: Array(20).fill(0.08)});
+    p.metrics.subjectHighlights = h;
+    const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL})[p.id];
+    assert.ok(!('Exposure2012' in d.changes), JSON.stringify(h));
+  }
+  for (const small of ['face', 'preview']) {
+    const p = photo({ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.5}}, clipAtEV: Array(20).fill(0.08)});
+    p.metrics.subjectHighlights = base;
+    if (small === 'face') p.metrics.subject.area = 0.001;
+    else p.metrics.width = 320;
+    const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL})[p.id];
+    assert.ok(!('Exposure2012' in d.changes), small);
+  }
+});
+
+test('a reference without a measurable face keeps the ordinary exposure calculation and says so', () => {
+  for (const area of [0, 0.001]) {
+    const a = photo({face: area ? 0.12 : null});
+    if (area) a.metrics.subject.area = area;
+    const b = photo();
+    const d = decide({photos: [a, b], scenes: [{...scene([a, b])[0], referenceApproved: true}],
+      policy: resolvePolicy('Soft & airy', 'Stronger'), enabled: ALL});
+    assert.deepEqual(d[a.id].changes, {});
+    assert.equal(d[b.id].changes.Exposure2012, 0.2);
+    assert.match(d[a.id].rationale.join(' '), /no reliable face/i);
+    assert.doesNotMatch(d[b.id].rationale.join(' '), /approved reference/i);
+  }
+});

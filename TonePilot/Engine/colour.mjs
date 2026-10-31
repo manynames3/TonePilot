@@ -80,3 +80,13 @@ export function describeCast({a, b}) {
   if (Math.abs(b) >= 0.8) parts.push(b > 0 ? 'warm' : 'cool');
   return parts.join(' and ') || 'slightly off-neutral';
 }
+
+// A gross-regression alarm, not a skin-quality score. Compare only adequately sampled,
+// similarly sized white selections; different selections cannot establish a colour change.
+export function whiteCastRegression(before, after) {
+  const valid = m => m && (!m.width || Math.max(m.width, m.height || 0) >= 500) &&
+    m.whites?.fraction >= CAST_LIMITS.minWhiteShare && Number.isFinite(m.whites.a) && Number.isFinite(m.whites.b);
+  if (!valid(before) || !valid(after)) return false;
+  const a = before.whites, b = after.whites, ratio = b.fraction / a.fraction;
+  return ratio >= 0.5 && ratio <= 2 && Math.hypot(b.a, b.b) - Math.hypot(a.a, a.b) >= CAST_LIMITS.minCast;
+}

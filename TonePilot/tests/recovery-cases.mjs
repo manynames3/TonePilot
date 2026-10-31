@@ -37,7 +37,7 @@ export function recoveryTests(bridge) {
       let v = x.show(dir);
       assert.equal(v.status, 'interrupted'); assert.equal(v.attention, true);
       assert.equal(v.photos[1].state, 'writing');
-      assert.deepEqual(v.actions, {resumeAnalysis: false, apply: false, restore: false, reconcile: true, discard: false});
+      assert.deepEqual(v.actions, {setReference: false, resumeAnalysis: false, apply: false, restore: false, reconcile: true, discard: false});
       x.set(s => { s.faults = {}; });
       const rec = x.run(['--mode', 'reconcile', '--session', dir]);
       assert.equal(rec.status, 0, JSON.stringify(rec.error));
