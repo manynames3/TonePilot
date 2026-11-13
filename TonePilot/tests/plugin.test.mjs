@@ -37,14 +37,20 @@ test('the plug-in writes exactly the engine\'s keys and serves only its eight ac
   assert.equal(source.match(/version = "([\d.]+)"/)[1], info, 'hello reports the Info.lua version');
 });
 
-test('the plug-in Lua runs against stub SDK objects (allowlist, JSON, token, bridge file)', t => {
-  if (spawnSync('lua', ['-v']).status !== 0) return t.skip('no Lua interpreter installed (brew install lua)');
-  const home = mkdtempSync(join(tmpdir(), 'tonepilot-lua-'));
-  try {
-    const r = spawnSync('lua', [join(folder, 'plugin-harness.lua'), PLUGIN, home], {encoding: 'utf8'});
-    assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, /plugin harness: ok/);
-  } finally { rmSync(home, {recursive: true, force: true}); }
+// Lightroom embeds Lua 5.1. LuaJIT is the 5.1-compatible check; stock `lua` (5.4/5.5) is a second opinion.
+test('the plug-in Lua runs against stub SDK objects (allowlist, JSON, token, bridge file), under Lua 5.1 rules when LuaJIT is installed', t => {
+  const interpreters = ['luajit', 'lua'].filter(bin => spawnSync(bin, ['-v']).status === 0);
+  if (!interpreters.length) return t.skip('no Lua interpreter installed (brew install luajit)');
+  for (const bin of interpreters) {
+    const home = mkdtempSync(join(tmpdir(), 'tonepilot-lua-'));
+    try {
+      if (bin === 'luajit') for (const f of ['Actions', 'Info', 'Init', 'JSON', 'MenuStatus', 'Server'])
+        assert.equal(spawnSync(bin, ['-bl', join(PLUGIN, f + '.lua')], {encoding: 'utf8'}).status, 0, f + '.lua must parse as Lua 5.1');
+      const r = spawnSync(bin, [join(folder, 'plugin-harness.lua'), PLUGIN, home], {encoding: 'utf8'});
+      assert.equal(r.status, 0, bin + ': ' + r.stderr);
+      assert.match(r.stdout, /plugin harness: ok/);
+    } finally { rmSync(home, {recursive: true, force: true}); }
+  }
 });
 
 test('every request needs the bridge-file token; a wrong token falls back to the MCP bridge', async () => {
