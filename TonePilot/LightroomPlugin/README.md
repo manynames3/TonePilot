@@ -2,7 +2,7 @@
 
 TonePilot's own Lightroom Classic plug-in (SDK 8+). It replaces the third-party Lightroom MCP bridge for the TonePilot engine with the smallest surface the engine needs.
 
-> **Not yet verified inside Lightroom.** The Lua has been syntax-checked with `luac` and run against stub SDK objects (`TonePilot/tests/plugin-harness.lua`); the engine has been tested against a mock of its protocol (`TonePilot/tests/mock-plugin.mjs`). Nothing here has run in Lightroom Classic. Until it has, the engine falls back to the MCP bridge whenever this plug-in is not running.
+> **Not yet verified inside Lightroom.** The Lua parses under Lua 5.1 rules (LuaJIT; Lightroom embeds Lua 5.1) and has been run against stub SDK objects (`TonePilot/tests/plugin-harness.lua`); the engine has been tested against a mock of its protocol (`TonePilot/tests/mock-plugin.mjs`). Nothing here has run in Lightroom Classic. Until it has, the engine falls back to the MCP bridge whenever this plug-in is not running.
 
 ## What it does
 

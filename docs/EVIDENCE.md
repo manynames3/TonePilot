@@ -115,7 +115,7 @@ The same 20 RAW photos (one indoor family shoot, window and mixed light), GPT-6.
 
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-203 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
+205 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|
@@ -162,6 +162,10 @@ The full simulated suite passed at 203/203; the signed scratch app build and all
 
 No real Lightroom writes or restores were made for this implementation. No confidence threshold, hard cap, strength fraction, profile or preset was changed. The photographer's finished edits/ratings are still needed for calibration; G1, G3 and G4 are not claimed passed.
 
+## Randomized reliability checks (November 13, 2026, simulated only)
+
+`tests/fuzz.test.mjs`, seeded and reproducible. **Planner:** 4,000 random scenes on every run (64,000 in a one-off hunt, no failures): the same input always gives the same plan, photo order in memory doesn't matter, nothing the planner proposes is rejected by its own safety limits, every change stays within the strength and hard caps from the photo's origin, nothing is proposed below the 70% floor, below the 82% bar only exposure and white balance move, disabled groups and approved references are never changed. Reintroducing three known bugs (the Kelvin rounding overshoot, tone below the bar, the ignored floor) fails it. **Crash recovery:** a real apply-and-restore journal cut at every third byte reopens without error, never as "damaged", shows "interrupted" exactly when a write or restore was in flight, and never reports more photos changed or restored than the surviving records prove. The full suite ran five times in a row without a failure. None of this measures edit quality.
+
 ## Engine scaling (synthetic, `node TonePilot/Benchmarks/scale.mjs`)
 
 | Photos | Scenes | Journal | Append (fsync) | Apply journaling | Scene grouping | Planning | Full fold | Heap |
@@ -188,7 +192,7 @@ The trade-off: a selection change is now noticed within 25 photos (usually soone
 
 - **TonePilot Cloud (`TonePilot/Cloud`) has never been deployed or called Bedrock.** It is simulated only: the handler runs locally against an in-memory usage store and the mock model. The SAM template is not validated (`sam validate` not run: SAM CLI not installed), the IAM resource ARN for the model is unverified, and its latency, token use and cost are estimates, not measurements.
 
-- **TonePilot's own Lightroom plug-in (`TonePilot/LightroomPlugin`) has never run inside Lightroom.** Its Lua is syntax-checked with `luac` 5.5 (Lightroom embeds Lua 5.1) and exercised only against stub SDK objects; the engine is tested only against a mock of its protocol. Snapshot support (`createDevelopSnapshot`), the History step name, and whether any `full` Develop value changes without an edit are unverified.
+- **TonePilot's own Lightroom plug-in (`TonePilot/LightroomPlugin`) has never run inside Lightroom.** Its Lua parses under Lua 5.1 rules (LuaJIT, the 5.1-compatible interpreter; Lightroom embeds Lua 5.1) and under `luac` 5.5, and its self-test passes on both, but it is exercised only against stub SDK objects; the engine is tested only against a mock of its protocol. Snapshot support (`createDevelopSnapshot`), the History step name, and whether any `full` Develop value changes without an edit are unverified.
 
 - Any restore on real photos, and the controlled sandbox cycle (gate G1).
 - Any multi-scene gallery; flash, tungsten or mixed light on real data.
