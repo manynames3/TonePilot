@@ -20,7 +20,7 @@ import {groupScenes} from './scenes.mjs';
 import {decide} from './harmonize.mjs';
 import {buildPrompt, buildBatchPrompt, assessImage, assessBatch, aiProvider, BATCH_SIZE, pool} from './ai.mjs';
 import {runDoctor} from './doctor.mjs';
-import {previewBytes, savePreview} from './preview.mjs';
+import {previewBytes, savePreview, saveThumbnail} from './preview.mjs';
 import {childEnv} from './secrets.mjs';
 import {ENGINE_VERSION} from './version.mjs';
 import {whiteCastRegression} from './colour.mjs';
@@ -191,6 +191,7 @@ async function runAnalysis(client, journal, dir) {
         continue;   // the photo is flagged at assessment time; the rest of the job goes on
       }
       const metrics = runAnalyzer(previews.get(p.id), p.identity.path);
+      saveThumbnail(previews.get(p.id), path.join(dir, 'thumbs', p.id + '.jpg'));
       journal.append('photo-measured', {photo: p.id, previewHash: hash(jpeg), metrics,
         note: metrics ? undefined : 'Local measurement unavailable'});
     }
@@ -621,6 +622,7 @@ function doDiscard() {
   if (!deriveStatus(s).actions.discard) throw new Error('Only sessions with no TonePilot changes in Lightroom can be discarded');
   const journal = Journal.open(dir);
   try { journal.append('discarded'); } finally { journal.close(); }
+  fs.rmSync(path.join(dir, 'thumbs'), {recursive: true, force: true});
   const view = writeViews(reload(dir));
   emit('complete', {state: view.status, dir, ...brief(view)});
 }

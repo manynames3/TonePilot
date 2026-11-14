@@ -72,7 +72,7 @@ See the [measured results and limits](docs/EVIDENCE.md#new-judgment-rules-on-rea
 
 ## Your photos and privacy
 
-TonePilot sends Lightroom previews (at most 1,024 pixels) and the photo's current Develop values to the AI service **you** choose in Setup. Nothing else leaves your Mac: face, skin and highlight measurements run locally, and your own Codex plugins, apps and skills are kept out of TonePilot's calls. Make sure you have your clients' consent and accept your AI provider's terms before using client work.
+TonePilot sends Lightroom previews (at most 1,024 pixels) and the photo's current Develop values to the AI service **you** choose in Setup. A small thumbnail of each preview is kept in the session's private folder on your Mac so you can recognise frames in the review list; it is removed when you discard the session. Nothing else leaves your Mac: face, skin and highlight measurements run locally, and your own Codex plugins, apps and skills are kept out of TonePilot's calls. Make sure you have your clients' consent and accept your AI provider's terms before using client work.
 
 ## Try the developer preview
 

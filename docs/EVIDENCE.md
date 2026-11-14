@@ -115,7 +115,7 @@ The same 20 RAW photos (one indoor family shoot, window and mixed light), GPT-6.
 
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-206 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
+208 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|

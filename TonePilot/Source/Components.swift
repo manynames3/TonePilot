@@ -309,3 +309,26 @@ enum Format {
 extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }
+
+extension Notification.Name { static let scrollToPhoto = Notification.Name("TonePilot.scrollToPhoto") }
+
+// The small Lightroom preview kept with a session, for recognising a frame. Identification
+// only: Lightroom stays the place to look at photos.
+struct Thumbnail: View {
+    let path: String?
+    var width: CGFloat = 112
+    var height: CGFloat = 76
+    var radius: CGFloat = 8
+    var body: some View {
+        Group {
+            if let path, let image = NSImage(contentsOfFile: path) {
+                Image(nsImage: image).resizable().interpolation(.medium).aspectRatio(contentMode: .fill)
+            } else {
+                ZStack { Theme.sunken; Image(systemName: "photo").font(.system(size: min(width, height) * 0.3)).foregroundStyle(Theme.muted.opacity(0.6)) }
+            }
+        }
+        .frame(width: width, height: height).clipShape(RoundedRectangle(cornerRadius: radius))
+        .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Theme.line, lineWidth: 0.7))
+        .accessibilityHidden(true)
+    }
+}

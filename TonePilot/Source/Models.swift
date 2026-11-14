@@ -75,6 +75,7 @@ struct PhotoView: Decodable, Identifiable, Hashable {
     let measurement: Measurement?; let after: After?
     let prior: Prior?; let staleFields: [String]; let restoreConflict: Conflict?
     let write: Outcome?; let restore: Outcome?
+    let thumb: String?
 
     var isApplicable: Bool { state == "proposed" || state == "apply-failed" }
     var needsReview: Bool { ["flagged", "stale", "apply-mismatch", "restore-mismatch", "writing", "restoring", "apply-failed"].contains(state) || restoreConflict != nil || reviewRecommended == true }

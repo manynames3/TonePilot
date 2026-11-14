@@ -4,6 +4,7 @@ Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps 
 
 ## Unreleased
 
+- **Thumbnails for recognising frames.** Each review card shows a small copy (240 px, about 9 KB) of the Lightroom preview TonePilot already fetched, and each scene has a filmstrip that jumps to a card. They live in the session's private folder, never appear in reports, and are removed when the session is discarded. Measured cost: about 16 ms per photo. Lightroom remains the place to look at photos; there is no zoom or browsing.
 - **Clearer screens.** Sessions are named after their photos ("4D6A8833 – 8852") instead of only a time; an edited photo leads with TonePilot's own reason and keeps the AI's per-photo note in the details, so the two can't appear to contradict each other; plainer wording for scene-matched exposure and for JPEG/HEIC white balance; one prompt instead of two when Lightroom isn't connected; labelled "Options" menus; warnings no longer cut off; the privacy line now says previews are up to 1,024 px.
 
 ## 0.6.2 — developer preview (October 30, 2026)
