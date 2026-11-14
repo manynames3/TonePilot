@@ -221,8 +221,8 @@ export function classifyRestore({plan, preSnapshot, afterValues, afterSnapshot})
   return {outcome: 'restore-mismatch', wrong, unexpected};
 }
 
-const NON_RAW_WB = 'White balance was left unchanged: for JPEG, HEIC and TIFF files Lightroom stores relative (Incremental) Temperature/Tint, which the installed Lightroom bridge cannot read or write.';
-const NO_INCREMENTAL_WRITE = 'White balance was left unchanged: the Lightroom bridge reports relative (Incremental) Temperature/Tint for this file but does not accept writing them.';
+const NON_RAW_WB = 'White balance left as is: the installed Lightroom plug-in can\'t change it on JPEG, HEIC or TIFF files.';
+const NO_INCREMENTAL_WRITE = 'White balance left as is: the installed Lightroom plug-in can read it on this JPEG, HEIC or TIFF file but does not accept writing it.';
 // writable: Develop keys the bridge's write tool accepts (null when unknown, which is
 // treated as "cannot write" for the relative white-balance keys).
 export function capabilitiesOf(meta, values, writable = null) {

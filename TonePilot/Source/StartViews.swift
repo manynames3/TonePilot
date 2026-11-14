@@ -321,7 +321,8 @@ struct NewPassView: View {
             .padding(.horizontal, 16).padding(.vertical, 12)
             .background(Theme.sunken, in: RoundedRectangle(cornerRadius: 12))
             .padding(.top, 6)
-            if let error = model.selectionError {
+            // Before setup is complete the reason is on the Setup screen; one prompt is enough here.
+            if let error = model.selectionError, model.ready {
                 Callout(tone: .danger, systemImage: "bolt.horizontal.circle", title: "Lightroom didn't answer", message: error)
             }
             if let s = selection, s.count > 0 {
@@ -454,7 +455,7 @@ struct NewPassView: View {
             .keyboardShortcut(.return, modifiers: .command)
             HStack(spacing: 6) {
                 Image(systemName: "lock.shield")
-                Text("Analysis only reads Lightroom · 640-px previews go to \(model.ai.active.destination) · measurements stay on this Mac")
+                Text("Analysis only reads Lightroom · small previews (up to 1,024 px) go to \(model.ai.active.destination) · measurements stay on this Mac")
             }
             .font(Theme.secondary).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.85)
         }
@@ -465,7 +466,7 @@ struct NewPassView: View {
 
     private var primaryTitle: String {
         switch next {
-        case .setup: return "Finish setup to continue"
+        case .setup: return "Open Setup to connect Lightroom"
         case .read: return selection == nil ? "Read Lightroom selection" : "Update Lightroom selection"
         case .analyze: return "Analyze \(Format.plural(selection?.count ?? 0, "photo")) · no edits yet"
         case .blocked(let why): return why

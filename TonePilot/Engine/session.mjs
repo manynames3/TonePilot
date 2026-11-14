@@ -220,10 +220,25 @@ export function photoView(p) {
   };
 }
 
+// A short name from the photos themselves: "4D6A8833 – 8852" (shared prefix dropped from the
+// last name), so passes made minutes apart can be told apart in the list.
+export function sessionTitle(filenames) {
+  const names = filenames.filter(Boolean).map(f => f.replace(/\.[^.]+$/, ''));
+  if (!names.length) return null;
+  const first = names[0], last = names.at(-1);
+  if (names.length === 1 || first === last) return first;
+  let i = 0;
+  while (i < first.length && first[i] === last[i]) i++;
+  while (i > 0 && /\d/.test(first[i - 1])) i--;          // keep whole numbers together
+  const tail = last.slice(i);
+  return first + ' – ' + (i >= 2 && /^\d+$/.test(tail) ? tail : last);
+}
+const titleOf = s => sessionTitle(s.order.map(id => s.photos[id]?.filename));
+
 export function sessionView(s) {
   const st = deriveStatus(s);
   return {
-    id: s.id, dir: s.dir, createdAt: s.createdAt, updatedAt: s.lastAt,
+    id: s.id, dir: s.dir, title: titleOf(s), createdAt: s.createdAt, updatedAt: s.lastAt,
     look: s.config?.look, strength: s.config?.strength, enabled: s.config?.enabled,
     policy: s.policy, engine: s.engine, ...st,
     scenes: s.scenes, errors: s.errors, analysisError: s.analysisError,
@@ -233,7 +248,7 @@ export function sessionView(s) {
 
 export function sessionSummary(s) {
   const st = deriveStatus(s);
-  return {id: s.id, dir: s.dir, createdAt: s.createdAt, updatedAt: s.lastAt, look: s.config?.look,
+  return {id: s.id, dir: s.dir, title: titleOf(s), createdAt: s.createdAt, updatedAt: s.lastAt, look: s.config?.look,
     strength: s.config?.strength, photoCount: s.order.length, ...st};
 }
 
