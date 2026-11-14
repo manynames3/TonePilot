@@ -59,9 +59,25 @@ struct SessionDetailView: View {
             if index > 1, let reasons = scene.startedBecause, !reasons.isEmpty {
                 Text("New lighting scene: " + reasons.joined(separator: ", ")).font(Theme.secondary).foregroundStyle(Theme.muted)
             }
+            if visiblePhotos(scene).contains(where: { $0.thumb != nil }), visiblePhotos(scene).count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(visiblePhotos(scene)) { photo in
+                            Button { NotificationCenter.default.post(name: .scrollToPhoto, object: photo.id) } label: {
+                                Thumbnail(path: photo.thumb, width: 46, height: 31, radius: 5)
+                                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(photoTone(photo.state).color.opacity(photo.needsReview || photo.isApplicable ? 0.9 : 0), lineWidth: 1.5))
+                            }
+                            .buttonStyle(.plain).help(photo.filename + " · " + photo.stateLabel)
+                            .accessibilityLabel("Go to \(photo.filename)")
+                        }
+                    }
+                    .padding(.vertical, 2).padding(.horizontal, 1)
+                }
+            }
             VStack(spacing: 10) {
                 ForEach(visiblePhotos(scene)) { photo in
                     PhotoCard(photo: photo, session: session, isReference: scene.reference == photo.id, isApprovedReference: scene.referenceApproved == true, hidden: commonWarnings)
+                        .id("photo-" + photo.id)
                 }
             }
         }
@@ -245,6 +261,17 @@ struct PhotoCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
+            if session.photos.contains(where: { $0.thumb != nil }) {
+                Thumbnail(path: photo.thumb)
+                    .overlay(alignment: .bottomLeading) {
+                        if !photo.changes.isEmpty {
+                            Text(["applied", "apply-mismatch"].contains(photo.state) ? "Before edit" : "Before")
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.cream)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(Theme.ink.opacity(0.78), in: RoundedRectangle(cornerRadius: 4)).padding(5)
+                        }
+                    }
+            }
             if approvable {
                 Toggle("Approve edit for \(photo.filename)", isOn: Binding(get: { isApproved }, set: { _ in model.toggleApproval(photo, in: session) }))
                     .toggleStyle(CheckboxStyle()).padding(.top, 3)

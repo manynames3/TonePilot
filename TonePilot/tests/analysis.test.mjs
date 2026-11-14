@@ -384,3 +384,26 @@ test('a reference without a measurable face keeps the ordinary exposure calculat
     assert.doesNotMatch(d[b.id].rationale.join(' '), /approved reference/i);
   }
 });
+
+test('thumbnails: a small private JPEG per photo for identification; a preview that can\'t be scaled never blocks analysis', async () => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const {spawnSync} = await import('node:child_process');
+  const {saveThumbnail, jpegSize, THUMB_MAX_EDGE} = await import('../Engine/preview.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tonepilot-thumb-test-'));
+  try {
+    const bmp = Buffer.alloc(54 + 1024 * 3 * 512); bmp.fill(0x80, 54);
+    bmp.write('BM'); bmp.writeUInt32LE(bmp.length, 2); bmp.writeUInt32LE(54, 10); bmp.writeUInt32LE(40, 14);
+    bmp.writeInt32LE(1024, 18); bmp.writeInt32LE(512, 22); bmp.writeUInt16LE(1, 26); bmp.writeUInt16LE(24, 28);
+    fs.writeFileSync(path.join(dir, 'p.bmp'), bmp);
+    spawnSync('/usr/bin/sips', ['-s', 'format', 'jpeg', path.join(dir, 'p.bmp'), '--out', path.join(dir, 'p.jpg')], {stdio: 'ignore'});
+    const out = path.join(dir, 'thumbs', '101.jpg');
+    assert.equal(saveThumbnail(path.join(dir, 'p.jpg'), out), true);
+    assert.deepEqual(jpegSize(fs.readFileSync(out)), {width: THUMB_MAX_EDGE, height: THUMB_MAX_EDGE / 2});
+    assert.equal(fs.statSync(out).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.dirname(out)).mode & 0o777, 0o700);
+    assert.ok(fs.statSync(out).size < 40000, 'small: ' + fs.statSync(out).size);
+    fs.writeFileSync(path.join(dir, 'bad.jpg'), 'not a jpeg');
+    assert.equal(saveThumbnail(path.join(dir, 'bad.jpg'), path.join(dir, 'thumbs', 'bad.jpg')), false);
+    assert.ok(!fs.existsSync(path.join(dir, 'thumbs', 'bad.jpg')), 'no broken file left behind');
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});

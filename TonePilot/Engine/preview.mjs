@@ -1,5 +1,6 @@
 // Lightroom previews as the model and the on-device analyzer receive them.
 import fs from 'node:fs';
+import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 
 // Lightroom sometimes answers a small preview request with the full-size image (seen on a
@@ -32,4 +33,19 @@ export function savePreview(jpeg, file) {
   if (!size || Math.max(size.width, size.height) <= PREVIEW_MAX_EDGE) return jpeg;
   const r = spawnSync('/usr/bin/sips', ['-Z', String(PREVIEW_MAX_EDGE), file], {stdio: 'ignore'});
   return r.status === 0 ? fs.readFileSync(file) : jpeg;
+}
+
+// A small copy of the preview kept in the session's private folder so the photographer can
+// recognise the frame in the review list. Identification only: never in reports, removed
+// when the session is discarded. Best effort — a thumbnail never blocks an analysis.
+export const THUMB_MAX_EDGE = 240;
+export function saveThumbnail(previewFile, file) {
+  try {
+    fs.mkdirSync(path.dirname(file), {recursive: true, mode: 0o700});
+    fs.chmodSync(path.dirname(file), 0o700);
+    const r = spawnSync('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '60', '-Z', String(THUMB_MAX_EDGE), previewFile, '--out', file], {stdio: 'ignore'});
+    if (r.status !== 0 || !jpegSize(fs.readFileSync(file))) { fs.rmSync(file, {force: true}); return false; }
+    fs.chmodSync(file, 0o600);
+    return true;
+  } catch { fs.rmSync(file, {force: true}); return false; }
 }

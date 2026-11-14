@@ -236,3 +236,19 @@ test('a session is named after its photos so two passes made in the same minute 
     assert.equal(x.run(['--mode', 'sessions']).complete.sessions[0].title, 'A_0101 – 0102');
   } finally { x.cleanup(); }
 });
+
+test('thumbnails are optional and private: analysis succeeds without them, views only list ones that exist, discard removes them', async () => {
+  const {setup, rawPhoto} = await import('./helpers.mjs');
+  const fs = await import('node:fs'), path = await import('node:path');
+  const x = setup({photos: {101: rawPhoto('A.CR3')}});
+  try {
+    const dir = x.analyze(['101']);                       // mock previews are not real JPEGs: no thumbnail
+    assert.equal(x.show(dir).photos[0].thumb, null);
+    fs.mkdirSync(path.join(dir, 'thumbs'), {recursive: true});
+    fs.writeFileSync(path.join(dir, 'thumbs', '101.jpg'), 'x');
+    assert.equal(x.show(dir).photos[0].thumb, path.join(dir, 'thumbs', '101.jpg'));
+    assert.ok(!fs.readFileSync(path.join(dir, 'report.txt'), 'utf8').includes('thumbs'), 'never in reports');
+    assert.equal(x.run(['--mode', 'discard', '--session', dir, '--confirm']).status, 0);
+    assert.ok(!fs.existsSync(path.join(dir, 'thumbs')), 'discarding removes the thumbnails');
+  } finally { x.cleanup(); }
+});

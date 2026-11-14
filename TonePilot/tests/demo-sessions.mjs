@@ -4,8 +4,9 @@
 // public screenshots, so no real client photo, filename or description is ever shown.
 //
 //   node TonePilot/tests/demo-sessions.mjs /path/to/demo-runs
-import {cpSync, mkdirSync, readdirSync, rmSync} from 'node:fs';
-import {join, resolve} from 'node:path';
+import {cpSync, mkdirSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {join, resolve, dirname} from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {setup, rawPhoto} from './helpers.mjs';
 
 const out = resolve(process.argv[2] || 'demo-runs');
@@ -36,12 +37,27 @@ const plan = {
 };
 
 const ids = Object.keys(photos);
+// Synthetic thumbnails (flat warm tones, no photograph) so screenshots show the layout.
+function thumbnail(file, i) {
+  const w = 240, h = 160, row = w * 3, bmp = Buffer.alloc(54 + row * h);
+  bmp.write('BM'); bmp.writeUInt32LE(bmp.length, 2); bmp.writeUInt32LE(54, 10); bmp.writeUInt32LE(40, 14);
+  bmp.writeInt32LE(w, 18); bmp.writeInt32LE(h, 22); bmp.writeUInt16LE(1, 26); bmp.writeUInt16LE(24, 28);
+  const [b, g, r] = [[143, 167, 185], [127, 151, 168], [155, 179, 196], [116, 139, 156], [150, 174, 191], [120, 132, 150], [104, 118, 138]][i % 7];
+  for (let o = 54; o < bmp.length; o += 3) { bmp[o] = b; bmp[o + 1] = g; bmp[o + 2] = r; }
+  mkdirSync(dirname(file), {recursive: true});
+  writeFileSync(file + '.bmp', bmp);
+  spawnSync('/usr/bin/sips', ['-s', 'format', 'jpeg', file + '.bmp', '--out', file], {stdio: 'ignore'});
+  rmSync(file + '.bmp', {force: true});
+}
 function session(fn) {
   const x = setup({photos: structuredClone(photos), ai: plan});
   try {
     const dir = x.analyze(ids, ['--look', 'Natural', '--strength', 'Balanced']);
     fn?.(x, dir);
-    for (const name of readdirSync(x.runs)) cpSync(join(x.runs, name), join(out, name), {recursive: true});
+    for (const name of readdirSync(x.runs)) {
+      cpSync(join(x.runs, name), join(out, name), {recursive: true});
+      if (name.startsWith('session-')) ids.forEach((id, i) => thumbnail(join(out, name, 'thumbs', id + '.jpg'), i));
+    }
   } finally { x.cleanup(); }
 }
 

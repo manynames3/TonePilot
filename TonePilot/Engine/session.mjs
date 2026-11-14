@@ -242,7 +242,11 @@ export function sessionView(s) {
     look: s.config?.look, strength: s.config?.strength, enabled: s.config?.enabled,
     policy: s.policy, engine: s.engine, ...st,
     scenes: s.scenes, errors: s.errors, analysisError: s.analysisError,
-    photos: s.order.map(id => photoView(s.photos[id]))
+    // Thumbnails are files beside the journal, listed only when present.
+    photos: s.order.map(id => {
+      const thumb = s.dir ? path.join(s.dir, 'thumbs', id + '.jpg') : null;
+      return {...photoView(s.photos[id]), thumb: thumb && fs.existsSync(thumb) ? thumb : null};
+    })
   };
 }
 

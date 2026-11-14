@@ -79,13 +79,19 @@ struct Page<Content: View>: View {
     var maxWidth: CGFloat = 820
     @ViewBuilder var content: Content
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) { content }
-                .frame(maxWidth: maxWidth, alignment: .leading)
-                .padding(.horizontal, 40).padding(.top, 44).padding(.bottom, 28)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) { content }
+                    .frame(maxWidth: maxWidth, alignment: .leading)
+                    .padding(.horizontal, 40).padding(.top, 44).padding(.bottom, 28)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.automatic)
+            // A filmstrip frame asks the page to bring its card into view.
+            .onReceive(NotificationCenter.default.publisher(for: .scrollToPhoto)) { note in
+                if let id = note.object as? String { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("photo-" + id, anchor: .center) } }
+            }
         }
-        .scrollIndicators(.automatic)
     }
 }
 
