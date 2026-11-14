@@ -4,6 +4,7 @@ Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps 
 
 ## Unreleased
 
+- **Getting started now says how to start the Lightroom plug-in's server** (and to tick auto-start), in the README and in Setup's fix text: an installed plug-in is not a connected one.
 - **Skin first, and the same across a scene.** Frames shot in the same light now end on one shared white balance, set from the skin verdicts of all of them (each frame votes; the middle value wins; a frame whose own answer clearly differs keeps its own). A face more than ±0.25 EV away from its scene is brought to that band when the AI agrees it is off, half-way (at most 0.3 EV) when the AI called it fine, and never against the AI's judgment. The colour target is **neutral to slightly warm, no green or magenta**: slight warmth on white surfaces (up to b* +2.5, provisional) is left alone, cool is corrected, and the AI is told the same.
 - **A consistency score per scene.** Each scene header and the report show how far apart skin brightness is across its faces: before, as planned, and as measured from Lightroom's fresh previews once the scene's edits are in. Deliberate looks (silhouette, low-key, high-key) are not counted.
 - **Hard rule: a plan never leaves a scene's skin brightness less even than it found it.** An exposure change that would is withdrawn and that photo is left for you.

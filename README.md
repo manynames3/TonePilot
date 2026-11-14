@@ -85,6 +85,14 @@ cd TonePilot
 open ~/Applications/TonePilot.app
 ```
 
+**Connect Lightroom (once).** Installing the Lightroom MCP plug-in is not enough: its server has to be started, and "Installed and running" in the plug-in list only means the plug-in loaded.
+
+1. In Lightroom Classic: **File → Plug-in Manager…** and select **Lightroom MCP**.
+2. Scroll down in the right-hand panel, tick **Auto-start server on Lightroom launch**, and click **Start Server**.
+3. The status at the top should read `Running: true`. TonePilot's sidebar then shows Lightroom as connected.
+
+With auto-start ticked you never do this again. If TonePilot says "Lightroom not connected" while Lightroom is open, this is the first thing to check.
+
 TonePilot's **Setup** screen checks all of the above and tells you how to fix anything missing. The build is ad-hoc signed and not notarized.
 
 ## Status

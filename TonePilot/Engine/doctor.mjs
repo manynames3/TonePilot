@@ -183,7 +183,7 @@ export async function runDoctor({live = false} = {}) {
   }
   const listening = /LISTEN/.test(run('/usr/sbin/lsof', ['-nP', '-iTCP:58763', '-sTCP:LISTEN']).stdout || '');
   checks.push(check('plugin-server', listening, 'Plug-in server listening', listening ? 'Port 58763' : 'Not listening',
-    listening ? null : 'In Lightroom: File → Plug-in Manager → Lightroom MCP → Start Server.', mcpSeverity));
+    listening ? null : 'In Lightroom: File → Plug-in Manager → Lightroom MCP, scroll down, click Start Server and tick "Auto-start server on Lightroom launch" so this is only needed once. ("Installed and running" in the list only means the plug-in loaded.)', mcpSeverity));
   const server = bridgeServer();
   checks.push(check('bridge-server', server.ok, 'Bridge server ' + TESTED_BRIDGE_VERSION, server.where,
     server.ok ? null : 'Connect to the internet once so the pinned bridge can be downloaded, or use a bundled build.', 'recommended'));

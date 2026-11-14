@@ -181,6 +181,8 @@ What this does and does not show: the plan is more consistent, modestly. It is *
 
 **Why there is no measured skin-colour target.** On 25 faces measured in these sessions, the measured skin hue did not separate the AI's verdicts ("too magenta" and "correct" both had a median hue of about 47°), did not follow the cast measured on white surfaces, and varied widely inside one scene (a* by up to 14, b* by up to 20). The current face sampling is too crude to steer tint by a skin number, so colour consistency comes from the shared scene white balance and the white-surface band, not from a measured skin target. Better sampling needs real previews.
 
+**One real read-only run with the new prompt (November 13, 2026, 8 RAW frames of one scene, Balanced, GPT-6.1-Sol, nothing written).** All 8 frames were judged "too cool and magenta" (confidence 0.83–0.90), agreeing with the white surfaces measured in 7 of them (a* about +3.3, b* about −2.5). None needed review. Planned white-balance settings spread: 2.06 → 0.39 mired and tint 3 → 0 (every frame ends on tint 9 and 5059–5069 K). Skin brightness (7 faces, 0.62 EV apart) was left unchanged. One scene from one shoot: it shows the rules behave as designed on real input, not that the result looks right — nothing was applied or rated.
+
 **The replay found a real bug** (fixed, with a failing test first): a photo already past the current strength's cumulative limit was moved back toward its origin against its own skin verdict.
 
 Simulated: 219 tests. Disabling the evenness rule, the warm band, the shared-white-balance rule or the deliberate-look exclusion each fails the intended tests.
