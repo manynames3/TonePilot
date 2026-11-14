@@ -1,6 +1,7 @@
 // Session state is a pure fold over journal records. Status is DERIVED from photo
 // states every time, never stored, so a session cannot claim "restored" while any
 // TonePilot change is still present, and an interrupted write cannot be forgotten.
+import {sceneConsistency, consistencyLine} from './consistency.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {readJournal, atomicWrite} from './journal.mjs';
@@ -241,7 +242,12 @@ export function sessionView(s) {
     id: s.id, dir: s.dir, title: titleOf(s), createdAt: s.createdAt, updatedAt: s.lastAt,
     look: s.config?.look, strength: s.config?.strength, enabled: s.config?.enabled,
     policy: s.policy, engine: s.engine, ...st,
-    scenes: s.scenes, errors: s.errors, analysisError: s.analysisError,
+    // How even skin brightness is across each scene: before, as planned, and as measured after applying.
+    scenes: s.scenes.map(sc => {
+      const consistency = sceneConsistency(sc.photos.map(id => s.photos[id]).filter(p => p?.baseline));
+      return {...sc, consistency: consistency && {...consistency, line: consistencyLine(consistency)}};
+    }),
+    errors: s.errors, analysisError: s.analysisError,
     // Thumbnails are files beside the journal, listed only when present.
     photos: s.order.map(id => {
       const thumb = s.dir ? path.join(s.dir, 'thumbs', id + '.jpg') : null;
@@ -261,6 +267,8 @@ const fmt = v => v === null || v === undefined ? '—' : typeof v === 'number' ?
 export function renderReport(view) {
   const lines = ['TonePilot session ' + view.id, '', 'Status: ' + view.label + ' — ' + view.explanation,
     'Direction: ' + view.look + ' · ' + view.strength, ''];
+  for (const sc of view.scenes || []) if (sc.consistency?.line) lines.push('Scene ' + sc.id + ' — ' + sc.consistency.line);
+  if ((view.scenes || []).some(sc => sc.consistency?.line)) lines.push('');
   for (const p of view.photos) {
     lines.push(p.filename + ' — ' + p.stateLabel + (p.scene ? ' (scene ' + p.scene + ')' : ''));
     for (const c of p.changes) {

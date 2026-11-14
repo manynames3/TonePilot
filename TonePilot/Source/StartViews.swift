@@ -244,7 +244,7 @@ private struct CheckRow: View {
 
 private struct LookOption { let value: String; let name: String; let tagline: String; let detail: String; let ramp: [Color] }
 private let looks = [
-    LookOption(value: "Natural", name: "Natural", tagline: "TRUE TO LIFE", detail: "Neutral skin, consistent exposure, protected highlights.",
+    LookOption(value: "Natural", name: "Natural", tagline: "TRUE TO LIFE", detail: "Skin neutral to slightly warm, consistent exposure, protected highlights.",
                ramp: [Color(red: 0.30, green: 0.28, blue: 0.26), Color(red: 0.62, green: 0.58, blue: 0.53), Color(red: 0.93, green: 0.90, blue: 0.85)]),
     LookOption(value: "Soft & airy", name: "Soft & airy", tagline: "GENTLE LIGHT", detail: "Subjects +0.2 EV brighter, lifted shadows and blacks.",
                ramp: [Color(red: 0.55, green: 0.51, blue: 0.47), Color(red: 0.82, green: 0.78, blue: 0.72), Color(red: 0.99, green: 0.96, blue: 0.92)]),

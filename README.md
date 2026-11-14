@@ -33,7 +33,7 @@ See the [measured results and limits](docs/EVIDENCE.md#new-judgment-rules-on-rea
 1. **Reads your Lightroom selection** (up to 20 photos in this version) and saves every photo's original settings before anything else.
 2. **Measures each Lightroom preview on your Mac** — faces and skin, highlight headroom, capture time, flash — and **groups photos into lighting scenes**.
 3. **Asks the AI service you chose for a judgment** of light, intent, skin cast and subject exposure, in a strict typed format. The model has no Lightroom access.
-4. **Builds a consistent plan per scene**: darker frames are matched to their neighbours by measured face brightness; auto white-balance drift is synced within the same light; deliberate low-key, silhouette and high-key frames are left alone; brightening stops before it clips highlight detail.
+4. **Builds a consistent plan per scene**: darker frames are matched to their neighbours by measured face brightness; frames in the same light share one white balance set from their skin verdicts; each scene shows how even skin brightness is before and after, and a plan never leaves it less even; deliberate low-key, silhouette and high-key frames are left alone; brightening stops before it clips highlight detail.
 5. **You review and approve** each photo — original, proposed and (later) verified values, the reason, and what TonePilot could not judge.
 6. **Applies only what you approved**, one photo at a time, re-checking each photo first and reading every value back afterwards.
 7. **Restores originals on request** — but never over an edit you made afterwards.
@@ -47,7 +47,7 @@ See the [measured results and limits](docs/EVIDENCE.md#new-judgment-rules-on-rea
 | Share of each computed correction applied | 60% | 80% | 100% |
 | Model confidence needed (uncalibrated, same at every strength) | 82%, or 70% when the on-device measurements independently confirm the correction | same | same |
 
-**Natural** targets neutral, consistent subjects. **Soft & airy** targets +0.2 EV brighter subjects with lifted shadows and blacks. **True to scene** ignores small corrections and preserves deliberate coloured light. Looks only use controls TonePilot can write: exposure, highlights, shadows, whites, blacks, and (RAW only) temperature and tint.
+**Natural** targets consistent subjects with skin neutral to slightly warm. **Soft & airy** targets +0.2 EV brighter subjects with lifted shadows and blacks. **True to scene** ignores small corrections and preserves deliberate coloured light. Looks only use controls TonePilot can write: exposure, highlights, shadows, whites, blacks, and (RAW only) temperature and tint.
 
 ## Safety you can check
 

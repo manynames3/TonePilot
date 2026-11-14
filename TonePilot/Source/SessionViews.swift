@@ -59,6 +59,9 @@ struct SessionDetailView: View {
             if index > 1, let reasons = scene.startedBecause, !reasons.isEmpty {
                 Text("New lighting scene: " + reasons.joined(separator: ", ")).font(Theme.secondary).foregroundStyle(Theme.muted)
             }
+            if let line = scene.consistency?.line {
+                Label(line, systemImage: "equal.circle").font(Theme.secondary).foregroundStyle(Theme.muted)
+            }
             if visiblePhotos(scene).contains(where: { $0.thumb != nil }), visiblePhotos(scene).count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {

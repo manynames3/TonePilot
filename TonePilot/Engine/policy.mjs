@@ -42,7 +42,7 @@ export const HARD_CAPS = Object.freeze({Exposure2012: 1.0, TemperatureMired: 35,
 export const LOOKS = Object.freeze({
   'Natural': Object.freeze({
     label: 'Natural',
-    summary: 'Neutral skin, consistent subject exposure, highlights protected.',
+    summary: 'Skin neutral to slightly warm, consistent subject exposure, highlights protected.',
     exposureBiasEV: 0, exposureDeadbandEV: 0.08,
     toneBias: Object.freeze({Highlights2012: 0, Shadows2012: 0, Whites2012: 0, Blacks2012: 0}),
     maxNewClipFraction: 0.004, respectCreativeColour: false

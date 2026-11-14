@@ -150,3 +150,107 @@ test('an unavailable after-edit measurement is shown as a review warning while s
     assert.ok(p.warnings.some(w => /visual check.*unavailable|could not.*measur/i.test(w)), JSON.stringify(p.warnings));
   } finally { x.cleanup(); }
 });
+
+// ---- Skin-first consistency within a scene ----
+{
+  const {decide} = await import('../Engine/harmonize.mjs');
+  const {resolvePolicy, mired} = await import('../Engine/policy.mjs');
+  const {sceneConsistency} = await import('../Engine/consistency.mjs');
+  const caps = {supported: true, wb: true, wbMode: 'kelvin', exposure: true, tone: true};
+  let n = 0;
+  const frame = ({face = 0.12, temp = 5000, tint = 10, skin = null, ai = {}} = {}) => {
+    const id = String(++n), b = {WhiteBalance: 'As Shot', Temperature: temp, Tint: tint, Exposure2012: 0};
+    return {id, filename: 'F' + id, state: 'baselined', baseline: b, origin: {...b}, capabilities: caps,
+      identity: {captureTime: '2026-06-01 15:00:' + String(n).padStart(2, '0')},
+      exif: {cameraModel: 'R5', flash: 'Did not fire', aperture: 'f / 2.8', shutterSpeed: '1/250 sec', isoSpeedRating: 'ISO 400'},
+      metrics: {width: 1024, height: 683, subject: {method: 'face', luma: face, area: 0.05}, faces: [{luma: face, hue: 50, lab: [50, 18, 20], area: 0.05}],
+        clip: {channel: 0.001}, clipAtEV: Array(20).fill(0.001), grid: Array(48).fill(50)},
+      ai: {skip: false, confidence: 0.92, scene: 's', illuminant: 'window', mixedLighting: false, backlit: false, intent: 'none', skinCast: 'none',
+        subjectExposure: 'ok', proposed: {}, reason: 'r', skinTone: skin || {verdict: 'correct', temperatureShift: 0, tintShift: 0, note: ''}, ...ai}};
+  };
+  const plan = (ps, strength = 'Stronger') => {
+    const scenes = [{id: 'S1', photos: ps.map(p => p.id), reference: ps[0].id, flash: false}];
+    const d = decide({photos: ps, scenes, policy: resolvePolicy('Natural', strength), enabled: {wb: true, exposure: true, tone: false}});
+    return {d, after: ps.map(p => ({...p, changes: d[p.id].changes}))};
+  };
+  const evOf = (d, p) => (d[p.id].changes.Exposure2012 ?? 0);
+
+  test('faces in one scene are brought within a band of the scene\'s level when the model also saw them as off; frames inside it are left alone', () => {
+    n = 0;
+    const ps = [frame({face: 0.20, ai: {subjectExposure: 'over'}}), frame({face: 0.12}), frame({face: 0.125}), frame({face: 0.115}), frame({face: 0.07, ai: {subjectExposure: 'under'}})];
+    const {d, after} = plan(ps);
+    assert.ok(evOf(d, ps[0]) < -0.4, 'the bright frame comes down: ' + evOf(d, ps[0]));
+    assert.ok(evOf(d, ps[4]) > 0.4, 'the dark frame comes up: ' + evOf(d, ps[4]));
+    for (const p of ps.slice(1, 4)) assert.equal(evOf(d, p), 0, 'inside the band: untouched');
+    const c = sceneConsistency(after);
+    assert.ok(c.before.brightnessEV > 1.4 && c.planned.brightnessEV <= 0.56, JSON.stringify(c));
+    assert.match(d[ps[4].id].rationale.join(' '), /within ±0\.25 EV of this scene/);
+  });
+
+  test('a face the model judged fine may be a different complexion: it moves only half-way, by at most 0.3 EV, and never against the model', () => {
+    n = 0;
+    const ps = [frame({face: 0.12}), frame({face: 0.125}), frame({face: 0.115}), frame({face: 0.05}), frame({face: 0.26, ai: {subjectExposure: 'under'}})];
+    const {d} = plan(ps);
+    assert.ok(evOf(d, ps[3]) > 0.2 && evOf(d, ps[3]) <= 0.3, 'limited: ' + evOf(d, ps[3]));
+    assert.equal(evOf(d, ps[4]), 0, 'bright face, but the model saw it as under-exposed: left for its own judgment');
+  });
+
+  test('frames in the same light share one white-balance correction: per-photo model noise is averaged out', () => {
+    n = 0;
+    const skin = (t, i) => ({verdict: 'too-cool-and-magenta', temperatureShift: t, tintShift: i, note: ''});
+    const ps = [frame({skin: skin(150, -3)}), frame({skin: skin(250, -5)}), frame({skin: skin(200, -4)}), frame({skin: skin(100, -4)})];
+    const {d} = plan(ps);
+    const temps = new Set(ps.map(p => d[p.id].changes.Temperature)), tints = new Set(ps.map(p => d[p.id].changes.Tint));
+    assert.equal(temps.size, 1, 'one temperature for the scene: ' + [...temps]);
+    assert.equal(tints.size, 1, 'one tint for the scene: ' + [...tints]);
+    assert.match(d[ps[0].id].rationale.join(' '), /shared by the 4 frames in the same light/);
+  });
+
+  test('a frame whose skin verdict clearly differs from its scene keeps its own correction (different light)', () => {
+    n = 0;
+    const cool = {verdict: 'too-cool', temperatureShift: 150, tintShift: 0, note: ''};
+    const warm = {verdict: 'too-warm', temperatureShift: -600, tintShift: 0, note: ''};
+    const ps = [frame({skin: cool}), frame({skin: cool}), frame({skin: cool}), frame({skin: warm})];
+    const {d} = plan(ps);
+    assert.ok(d[ps[3].id].changes.Temperature < 5000, 'its own direction: ' + JSON.stringify(d[ps[3].id].changes));
+    assert.ok(d[ps[0].id].changes.Temperature > 5000);
+  });
+
+  test('scene consistency reports white-balance settings before and as planned; auto white balance drift converges', () => {
+    n = 0;
+    const skin = {verdict: 'too-cool', temperatureShift: 200, tintShift: 0, note: ''};
+    const ps = [frame({temp: 4800, skin}), frame({temp: 5000, skin}), frame({temp: 5200, skin})];
+    const {after} = plan(ps);
+    const c = sceneConsistency(after);
+    assert.ok(c.before.whiteBalanceMired > 15 && c.planned.whiteBalanceMired < c.before.whiteBalanceMired / 2, JSON.stringify(c));
+  });
+}
+
+test('each scene\'s skin-brightness consistency is in the session view and the report: before, planned, then measured after applying', () => {
+  const x = setup({photos: {101: rawPhoto('A.CR3'), 102: rawPhoto('B.CR3')}});
+  try {
+    x.set(s => { s.photos[101].metrics.faceLuma = 0.06; s.photos[102].metrics.faceLuma = 0.12; });
+    const dir = x.analyze(['101', '102']);
+    const c = x.show(dir).scenes[0].consistency;
+    assert.equal(c.before.frames, 2);
+    assert.equal(c.before.brightnessEV, 1);
+    assert.match(c.line, /^Skin brightness across 2 faces: 1\.00 EV apart/);
+    assert.match(fs.readFileSync(dir + '/report.txt', 'utf8'), /Skin brightness across 2 faces/);
+  } finally { x.cleanup(); }
+});
+
+test('consistency: deliberate looks are not counted, and a half-applied scene reports no "after" result', async () => {
+  const {sceneConsistency, consistencyLine} = await import('../Engine/consistency.mjs');
+  const f = (luma, o = {}) => ({baseline: {Exposure2012: 0}, changes: {}, state: 'skipped', ai: {intent: 'none'},
+    metrics: {width: 1024, height: 683, subject: {method: 'face', luma, area: 0.05}, faces: [{luma}]}, ...o});
+  const post = luma => ({metrics: f(luma).metrics});
+  const silhouette = f(0.01, {ai: {intent: 'silhouette'}});
+  const a = f(0.05, {changes: {Exposure2012: 1}, state: 'applied', post: post(0.1)}), b = f(0.1);
+  let c = sceneConsistency([a, b, silhouette]);
+  assert.equal(c.before.frames, 2, 'the silhouette is different on purpose');
+  assert.deepEqual([c.before.brightnessEV, c.planned.brightnessEV, c.measured.brightnessEV], [1, 0, 0]);
+  assert.match(consistencyLine(c), /1\.00 EV apart before → 0\.00 EV measured after applying/);
+  c = sceneConsistency([a, f(0.1, {changes: {Exposure2012: 0.2}, state: 'proposed'})]);
+  assert.equal(c.measured, null);
+  assert.match(consistencyLine(c), /planned/);
+});
