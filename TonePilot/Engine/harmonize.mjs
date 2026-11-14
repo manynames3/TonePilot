@@ -139,8 +139,8 @@ function decideExposure(scene, eligible, policy, out, reference) {
     const look = !reference && policy.exposureBiasEV ? ', including the ' + policy.look + ' look (' + signed(policy.exposureBiasEV, 1) + ' EV target)' : '';
     if (target !== null && face && !outliers.includes(p.id) && sameExposure(p) && shared !== null) {
       ev = shared + (reference ? 0 : policy.exposureBiasEV);
-      why = reference ? 'Same exposure and light as your approved reference; differences between people kept' : 'Same exposure and light as this scene: its shared judgment (' + agreeing.length + ' frame' + (agreeing.length > 1 ? 's' : '') +
-        ') was used, keeping differences between people' + look;
+      why = reference ? 'Same exposure and light as your approved reference; differences between people kept' : 'Same exposure and light as ' + (agreeing.length > 1 ? 'the ' + agreeing.length + ' frames' : 'the frame') +
+        ' this scene is judged by, so it gets the same change; people keep their own brightness' + look;
     } else if (target !== null && face && !outliers.includes(p.id)) {
       ev = Math.log2(target / face);
       why = reference ? 'Face brightness matched to your approved reference' : 'Face brightness matched to the scene (' + agreeing.length + ' agreeing frame' + (agreeing.length > 1 ? 's' : '') + look + ')';

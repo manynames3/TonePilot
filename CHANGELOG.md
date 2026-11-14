@@ -2,6 +2,10 @@
 
 Every claim here is backed by [docs/EVIDENCE.md](docs/EVIDENCE.md), which keeps real, simulated and unmeasured results apart.
 
+## Unreleased
+
+- **Clearer screens.** Sessions are named after their photos ("4D6A8833 – 8852") instead of only a time; an edited photo leads with TonePilot's own reason and keeps the AI's per-photo note in the details, so the two can't appear to contradict each other; plainer wording for scene-matched exposure and for JPEG/HEIC white balance; one prompt instead of two when Lightroom isn't connected; labelled "Options" menus; warnings no longer cut off; the privacy line now says previews are up to 1,024 px.
+
 ## 0.6.2 — developer preview (October 30, 2026)
 
 - **More consistent repeat passes.** Single-photo assessments are reused from existing private journals only when the rendered preview, observed settings, measurements, scene context, policy/prompt, engine version and model match. Changing inputs or selecting “Reassess unchanged photos” makes a fresh call. Provider comparisons always make fresh calls; repeatability scoring refuses reused assessments.

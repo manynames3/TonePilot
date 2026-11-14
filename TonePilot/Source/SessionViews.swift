@@ -52,7 +52,7 @@ struct SessionDetailView: View {
                     if scene.referenceApproved == true, session.actions.setReference == true {
                         Button("Use automatic reference") { Task { await model.setReference(nil, scene: scene, in: session) } }
                     }
-                } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Theme.muted) }
+                } label: { Label("Options", systemImage: "ellipsis.circle").labelStyle(.titleAndIcon).font(Theme.secondary).foregroundStyle(Theme.muted) }
                 .menuStyle(.borderlessButton).fixedSize()
                 .disabled(model.busy || session.running != nil)
             }
@@ -72,9 +72,10 @@ struct SessionDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(step: nil, title: "First pass", trailing: [session.look, session.strength].compactMap { $0 }.joined(separator: " · "))
+            SectionLabel(step: nil, title: session.title == nil ? "First pass" : "First pass · " + Format.date(session.created),
+                         trailing: [session.look, session.strength].compactMap { $0 }.joined(separator: " · "))
             HStack(alignment: .firstTextBaseline, spacing: 16) {
-                Text(Format.date(session.created)).font(Theme.display).tracking(-1.4).lineLimit(1).minimumScaleFactor(0.8)
+                Text(session.title ?? Format.date(session.created)).font(Theme.display).tracking(-1.4).lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 8)
                 StatusPill(label: session.running.map { _ in "Working…" } ?? session.label, tone: sessionTone(session.status))
             }
@@ -262,7 +263,7 @@ struct PhotoCard: View {
                             Button("Keep as scene reference") { Task { await model.setReference(photo, scene: scene, in: session) } }
                                 .help("Keep this frame as analyzed. Start a new pass to use a later Lightroom edit. The revised plan needs your approval again.")
                         }
-                    } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Theme.muted) }
+                    } label: { Label("Options", systemImage: "ellipsis.circle").labelStyle(.titleAndIcon).font(Theme.secondary).foregroundStyle(Theme.muted) }
                     .menuStyle(.borderlessButton).fixedSize()
                     .disabled(model.busy || session.running != nil)
                 }
@@ -271,8 +272,10 @@ struct PhotoCard: View {
                 if !photo.changes.isEmpty, let lead = photo.rationale.first(where: { $0 != skinLine }) {
                     Text(lead).font(Theme.secondaryStrong).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
                 }
-                if !photo.reason.isEmpty {
-                    Text((photo.changes.isEmpty ? "" : "AI assessment: ") + photo.reason).font(Theme.secondary).foregroundStyle(Theme.muted)
+                // On an unchanged photo the AI's note is the reason. On an edited one TonePilot's own
+                // reason leads (scene and measurements can outvote the note), so the note is evidence in details.
+                if !photo.reason.isEmpty, photo.changes.isEmpty || disclosure.open {
+                    Text((photo.changes.isEmpty ? "" : "The AI's note on this photo alone: ") + photo.reason).font(Theme.secondary).foregroundStyle(Theme.muted)
                         .lineLimit(disclosure.open ? nil : 2).fixedSize(horizontal: false, vertical: true)
                 }
                 if let skinLine {
@@ -290,7 +293,7 @@ struct PhotoCard: View {
                     Label(writeSummary(w), systemImage: "exclamationmark.triangle").font(Theme.secondaryStrong).foregroundStyle(Theme.attention)
                 }
                 if let first = photo.warnings.first(where: { !hidden.contains($0) }), !disclosure.open {
-                    Label(first, systemImage: "exclamationmark.circle").font(Theme.secondary).foregroundStyle(Theme.muted).lineLimit(1)
+                    Label(first, systemImage: "exclamationmark.circle").font(Theme.secondary).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 }
                 Button { withAnimation(.easeOut(duration: 0.15)) { disclosure.open.toggle() } } label: {
                     HStack(spacing: 5) {

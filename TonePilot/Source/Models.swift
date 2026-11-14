@@ -31,7 +31,7 @@ struct SessionsReport: Decodable { let sessions: [SessionSummary]; let running: 
 struct RunningEngine: Decodable, Equatable { let mode: String; let session: String? }
 
 struct SessionSummary: Decodable, Identifiable, Hashable {
-    let id: String; let dir: String
+    let id: String; let dir: String; let title: String?
     let createdAt: String?; let updatedAt: String?
     let look: String?; let strength: String?; let photoCount: Int?
     let status: String; let label: String; let explanation: String?
@@ -41,7 +41,7 @@ struct SessionSummary: Decodable, Identifiable, Hashable {
 }
 
 struct SessionView: Decodable, Identifiable {
-    let id: String; let dir: String
+    let id: String; let dir: String; let title: String?
     let createdAt: String?; let updatedAt: String?
     let look: String?; let strength: String?
     let enabled: [String: Bool]?

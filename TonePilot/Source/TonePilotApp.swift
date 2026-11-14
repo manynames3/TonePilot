@@ -216,15 +216,16 @@ private struct SessionRailRow: View {
         Button { Task { await model.open(s.id) } } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(Format.date(s.created)).font(Theme.serif(15)).monospacedDigit()
+                    Text(s.title ?? Format.date(s.created)).font(Theme.serif(15)).monospacedDigit().lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(Theme.cream.opacity(dim ? 0.6 : 1))
                     Spacer(minLength: 6)
                     if s.running != nil { ProgressView().controlSize(.mini).tint(Theme.accentLight) }
-                    else { Text(Format.plural(s.photoCount ?? 0, "photo")).font(Theme.secondary).foregroundStyle(Theme.railText.opacity(dim ? 0.7 : 1)) }
                 }
                 HStack(spacing: 6) {
                     Circle().fill(sessionTone(s.status).color).frame(width: 7, height: 7)
                     Text(s.isLegacy ? "TonePilot 0.4 · no changes" : s.label).font(Theme.secondary).lineLimit(1)
+                    Spacer(minLength: 6)
+                    Text(Format.plural(s.photoCount ?? 0, "photo")).font(Theme.secondary).lineLimit(1).fixedSize()
                 }
                 .foregroundStyle(Theme.railText.opacity(dim ? 0.75 : 1))
             }
@@ -235,6 +236,7 @@ private struct SessionRailRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help([s.title, Format.date(s.created)].compactMap { $0 }.joined(separator: " · "))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }

@@ -63,7 +63,7 @@ test('guard: restoring white balance puts the original mode back, not a Custom c
 test('guard: format capabilities are explicit about what cannot be written', () => {
   assert.equal(capabilitiesOf({fileFormat: 'VIDEO'}, {}).supported, false);
   const heic = capabilitiesOf({fileFormat: 'HEIC'}, {Exposure2012: 0, Highlights2012: 0, Shadows2012: 0, Whites2012: 0, Blacks2012: 0, WhiteBalance: 'As Shot'});
-  assert.equal(heic.supported, true); assert.equal(heic.wb, false); assert.match(heic.wbNote, /Incremental/);
+  assert.equal(heic.supported, true); assert.equal(heic.wb, false); assert.match(heic.wbNote, /JPEG, HEIC or TIFF/);
   assert.match(capabilitiesOf({fileFormat: 'RAW'}, {WhiteBalance: 'As Shot'}).reason, /legacy Lightroom process version/);
   assert.deepEqual(diffSnapshot({a: 1, hsl: {x: 1}}, {a: 1, hsl: {x: 2}}), ['hsl']);
 });
@@ -169,7 +169,7 @@ eachBridge('unsupported files are explained, not guessed at', bridge => {
     assert.equal(old.state, 'unsupported'); assert.match(old.reason, /process version/);
     assert.equal(h.state, 'proposed');
     assert.deepEqual(h.changes.map(c => c.key), ['Exposure2012'], 'no Tint on a HEIC');
-    assert.ok(h.warnings.some(w => /Incremental/.test(w)));
+    assert.ok(h.warnings.some(w => /JPEG, HEIC or TIFF/.test(w)));
   } finally { x.cleanup(); }
 });
 
@@ -219,5 +219,20 @@ test('a new pass defaults to exposure and white balance only: tone sliders are o
     const session = x.journal(dir).find(r => r.type === 'session-created');
     assert.deepEqual(session.config.enabled, {wb: true, exposure: true, tone: false});
     assert.ok(!x.show(dir).photos[0].changes.some(c => c.key === 'Shadows2012'), 'the model\'s tone proposal is not used');
+  } finally { x.cleanup(); }
+});
+
+test('a session is named after its photos so two passes made in the same minute can be told apart', async () => {
+  const {sessionTitle} = await import('../Engine/session.mjs');
+  assert.equal(sessionTitle(['4D6A8833.CR3', '4D6A8834.CR3', '4D6A8852.CR3']), '4D6A8833 – 8852');
+  assert.equal(sessionTitle(['BRIDE_0412.CR3', 'DETAILS_0388.JPG']), 'BRIDE_0412 – DETAILS_0388');
+  assert.equal(sessionTitle(['IMG_0001.HEIC']), 'IMG_0001');
+  assert.equal(sessionTitle([]), null);
+  const {setup, rawPhoto} = await import('./helpers.mjs');
+  const x = setup({photos: {101: rawPhoto('A_0101.CR3'), 102: rawPhoto('A_0102.CR3')}});
+  try {
+    const dir = x.analyze(['101', '102']);
+    assert.equal(x.show(dir).title, 'A_0101 – 0102');
+    assert.equal(x.run(['--mode', 'sessions']).complete.sessions[0].title, 'A_0101 – 0102');
   } finally { x.cleanup(); }
 });

@@ -53,7 +53,7 @@ test('with the stock 0.24.1 bridge (no relative fields at all) the reason is sta
   const caps = capabilitiesOf({fileFormat: 'HEIC'}, {WhiteBalance: 'As Shot', Exposure2012: 0, Highlights2012: 0, Shadows2012: 0, Whites2012: 0, Blacks2012: 0},
     new Set(['IncrementalTemperature', 'IncrementalTint']));
   assert.equal(caps.wb, false);
-  assert.match(caps.wbNote, /cannot read or write/);
+  assert.match(caps.wbNote, /can't change it on JPEG, HEIC or TIFF/);
   assert.ok(stock);
 });
 
