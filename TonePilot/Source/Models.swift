@@ -62,6 +62,8 @@ struct SceneInfo: Decodable, Identifiable, Hashable {
     let id: String; let photos: [String]; let reference: String?; let referenceApproved: Bool?
     let startedBecause: [String]?; let span: Span?; let flash: Bool?
     struct Span: Decodable, Hashable { let from: String; let to: String }
+    let consistency: Consistency?
+    struct Consistency: Decodable, Hashable { let line: String? }
 }
 
 struct PhotoView: Decodable, Identifiable, Hashable {

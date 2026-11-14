@@ -115,7 +115,7 @@ The same 20 RAW photos (one indoor family shoot, window and mixed light), GPT-6.
 
 ## Simulated (automated, `node --test TonePilot/tests/*.test.mjs`)
 
-208 tests, all passing, ~20 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
+219 tests, all passing, ~21 s. No photos and no catalog are touched. The workflow tests in `engine.test.mjs` and every recovery test run twice: against the mock MCP bridge and against a mock of TonePilot's own plug-in protocol.
 
 | Suite | Covers |
 |---|---|
@@ -165,6 +165,27 @@ No real Lightroom writes or restores were made for this implementation. No confi
 ## Randomized reliability checks (November 13, 2026, simulated only)
 
 `tests/fuzz.test.mjs`, seeded and reproducible. **Planner:** 4,000 random scenes on every run (64,000 in a one-off hunt, no failures): the same input always gives the same plan, photo order in memory doesn't matter, nothing the planner proposes is rejected by its own safety limits, every change stays within the strength and hard caps from the photo's origin, nothing is proposed below the 70% floor, below the 82% bar only exposure and white balance move, disabled groups and approved references are never changed. Reintroducing three known bugs (the Kelvin rounding overshoot, tone below the bar, the ignored floor) fails it. **Crash recovery:** a real apply-and-restore journal cut at every third byte reopens without error, never as "damaged", shows "interrupted" exactly when a write or restore was in flight, and never reports more photos changed or restored than the surviving records prove. The full suite ran five times in a row without a failure. None of this measures edit quality.
+
+## Skin-first consistency rules (November 13, 2026, offline replay of real assessments + simulated)
+
+`TonePilot/Benchmarks/replay.mjs` re-plans the owner's stored sessions with the current rules: the journals already hold each photo's measurements and AI assessment, so no Lightroom call, no AI call and no write is made. 14 distinct scenes with at least two measured faces (12 of them RAW), deliberate looks not counted.
+
+| | Skin-brightness spread, average | Scenes more / less even | White-balance settings spread (RAW), average |
+|---|---|---|---|
+| As shot | 0.57 EV | — | 11.9 mired, tint 4.5 |
+| Previous rules (0.6.2 + unreleased), Balanced | 0.53 EV | 3 / 0 | 14.2 mired, tint 4.6 |
+| New rules, Balanced | 0.51 EV | 5 / 0 | 10.6 mired, tint 3.6 |
+| New rules, Stronger | 0.51 EV | 5 / 0 | 10.0 mired, tint 3.8 |
+
+What this does and does not show: the plan is more consistent, modestly. It is **not** a measurement of applied results (nothing was applied), not a quality judgment, and the assessments replayed were made with the previous prompt: the new "neutral to slightly warm" prompt line has **not** been run on real photos. The spread is over different people, so it can never be zero.
+
+**Why there is no measured skin-colour target.** On 25 faces measured in these sessions, the measured skin hue did not separate the AI's verdicts ("too magenta" and "correct" both had a median hue of about 47°), did not follow the cast measured on white surfaces, and varied widely inside one scene (a* by up to 14, b* by up to 20). The current face sampling is too crude to steer tint by a skin number, so colour consistency comes from the shared scene white balance and the white-surface band, not from a measured skin target. Better sampling needs real previews.
+
+**One real read-only run with the new prompt (November 13, 2026, 8 RAW frames of one scene, Balanced, GPT-6.1-Sol, nothing written).** All 8 frames were judged "too cool and magenta" (confidence 0.83–0.90), agreeing with the white surfaces measured in 7 of them (a* about +3.3, b* about −2.5). None needed review. Planned white-balance settings spread: 2.06 → 0.39 mired and tint 3 → 0 (every frame ends on tint 9 and 5059–5069 K). Skin brightness (7 faces, 0.62 EV apart) was left unchanged. One scene from one shoot: it shows the rules behave as designed on real input, not that the result looks right — nothing was applied or rated.
+
+**The replay found a real bug** (fixed, with a failing test first): a photo already past the current strength's cumulative limit was moved back toward its origin against its own skin verdict.
+
+Simulated: 219 tests. Disabling the evenness rule, the warm band, the shared-white-balance rule or the deliberate-look exclusion each fails the intended tests.
 
 ## Engine scaling (synthetic, `node TonePilot/Benchmarks/scale.mjs`)
 

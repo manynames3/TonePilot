@@ -74,6 +74,17 @@ export function measuredCast(metrics) {
   return ref;
 }
 
+// The colour target, set by the photographer: neutral to slightly warm, no green or magenta.
+// On a white reference that is b* from 0 up to +warmB with a* at 0. A cast is what lies
+// outside that band: slight warmth is left alone, anything cool is corrected to neutral,
+// and too much warmth is brought back to the warm edge. Provisional until rated on photos.
+export const SKIN_TARGET = Object.freeze({warmB: 2.5});
+export function offTarget(cast) {
+  if (!cast) return null;
+  const b = cast.b < 0 ? cast.b : Math.max(0, cast.b - SKIN_TARGET.warmB);
+  return Math.hypot(cast.a, b) < CAST_LIMITS.minCast ? null : {...cast, b};
+}
+
 export function describeCast({a, b}) {
   const parts = [];
   if (Math.abs(a) >= 0.8) parts.push(a > 0 ? 'magenta' : 'green');

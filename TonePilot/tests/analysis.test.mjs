@@ -105,7 +105,9 @@ test('strength scales the correction and its limits; disagreeing judgments are n
     photo({face: 0.1, ai: {subjectExposure: 'over', proposed: {Exposure2012: -0.8}}})];
   const d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
   assert.ok(d[ps[0].id].warnings.some(w => /Judged differently/.test(w)));
-  assert.ok(ev(d, ps[0]) > 0 && ev(d, ps[1]) < 0);
+  // Equal faces judged in opposite directions: neither is averaged, and neither is applied
+  // (it would pull the scene apart); both are left for the photographer.
+  for (const p of ps) { assert.equal(d[p.id].status, 'flagged'); assert.match(d[p.id].reason, /less even/); assert.equal(ev(d, p), 0); }
 });
 
 test('one outlier frame does not switch off scene matching for the others', () => {
@@ -117,7 +119,9 @@ test('one outlier frame does not switch off scene matching for the others', () =
   const d = decide({photos: ps, scenes: scene(ps), policy, enabled: ALL});
   assert.match(d[ps[2].id].rationale[0], /matched to the scene \(3 agreeing frames\)/);
   assert.ok(d[ps[3].id].warnings.some(w => /Judged differently/.test(w)));
-  assert.ok(Math.abs(ev(d, ps[3]) - 1.0) < 0.011, 'outlier keeps its own assessment');
+  // Its face measures like the others', so its own +1.0 EV would pull the scene apart: left for the photographer.
+  assert.equal(d[ps[3].id].status, 'flagged'); assert.match(d[ps[3].id].reason, /less even/);
+  assert.ok(ev(d, ps[2]) > 0, 'the rest of the scene is still matched');
 });
 
 test('one confidence bar at every strength; skipped and uncertain photos are never edited', () => {
@@ -346,7 +350,8 @@ test('an approved scene reference keeps its current values and guides exposure w
   const d = decide({photos: [a, b, c], scenes: sc, policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
   assert.deepEqual(d[a.id].changes, {}, 'the approved baseline is already right');
   assert.equal(d[b.id].changes.Exposure2012, 1, 'one stop of measured camera exposure drift');
-  assert.ok(!('Exposure2012' in d[c.id].changes), 'same camera exposure keeps another person\'s brightness');
+  // Same camera exposure and judged fine: possibly another complexion, so only a limited half-way move.
+  assert.ok(d[c.id].changes.Exposure2012 > 0 && d[c.id].changes.Exposure2012 <= 0.3, 'limited: ' + JSON.stringify(d[c.id].changes));
   assert.match(d[b.id].rationale.join(' '), /approved reference/i);
 });
 
@@ -406,4 +411,49 @@ test('thumbnails: a small private JPEG per photo for identification; a preview t
     assert.equal(saveThumbnail(path.join(dir, 'bad.jpg'), path.join(dir, 'thumbs', 'bad.jpg')), false);
     assert.ok(!fs.existsSync(path.join(dir, 'thumbs', 'bad.jpg')), 'no broken file left behind');
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('a photo already past the current limit (applied at a larger strength) is never pushed back against its own evidence', () => {
+  // Origin 3400 K, now 3100 K after an earlier Stronger pass; the skin is judged still too warm.
+  const p = photo({baseline: {Temperature: 3100, Tint: 4, Exposure2012: 0.9}, ai: {confidence: 0.9, subjectExposure: 'under', proposed: {Exposure2012: 1.3},
+    skinTone: {verdict: 'too-warm', temperatureShift: -150, tintShift: 0, note: ''}}});
+  p.origin = {...p.baseline, Temperature: 3400, Exposure2012: 0};
+  const d = decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL})[p.id];
+  assert.ok(!('Temperature' in d.changes) || d.changes.Temperature < 3100, 'never warmer when the skin is too warm: ' + JSON.stringify(d.changes));
+  assert.ok(!('Exposure2012' in d.changes) || d.changes.Exposure2012 > 0.9, 'never darker when the subject is under: ' + JSON.stringify(d.changes));
+});
+
+test('skin target is neutral to slightly warm: slight warmth is left alone, cool is corrected, strong warmth comes back only to the warm edge', async () => {
+  const {offTarget, SKIN_TARGET} = await import('../Engine/colour.mjs');
+  assert.equal(offTarget({a: 0.3, b: 2.2, source: 'white surfaces'}), null, 'slightly warm whites are on target');
+  assert.equal(offTarget({a: 0, b: -2}).b, -2, 'cool is fully off target');
+  assert.equal(offTarget({a: 0, b: 6}).b, 6 - SKIN_TARGET.warmB, 'too warm is measured from the warm edge');
+  assert.equal(offTarget({a: 3, b: 1}).b, 0, 'magenta is still a cast; the warmth is not');
+  const plan = whites => {
+    const p = photo({ai: {skinTone: {verdict: 'correct', temperatureShift: 0, tintShift: 0, note: ''}}});
+    p.metrics.whites = {...whites, fraction: 0.2}; p.metrics.width = 1024; p.metrics.height = 683;
+    return decide({photos: [p], scenes: scene([p]), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL})[p.id].changes;
+  };
+  assert.ok(!('Temperature' in plan({a: 0, b: 2.2})), 'slightly warm: white balance untouched');
+  assert.ok(plan({a: 0, b: -4}).Temperature > 5200, 'cool: warmed');
+  const warm = plan({a: 0, b: 8}).Temperature, neutralised = 5200 - warm;
+  assert.ok(warm < 5200 && neutralised > 0, 'clearly too warm: cooled');
+});
+
+test('the prompt states the skin target', () => {
+  const text = buildPrompt({photo: photo({}), scene: {id: 'S1', photos: ['x'], reference: 'x'}, policy: resolvePolicy('Natural', 'Balanced'), enabled: ALL});
+  assert.match(text, /neutral to slightly warm/);
+});
+
+test('hard rule: a plan never leaves a scene\'s skin brightness less even than it found it', () => {
+  // The model wants the brightest face brighter still while judging its darker neighbours fine.
+  const mk = () => [photo({face: 0.10}), photo({face: 0.10}), photo({face: 0.14, iso: 'ISO 1600', ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.6}}})];
+  let ps = mk(), d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.equal(d[ps[2].id].status, 'flagged');
+  assert.match(d[ps[2].id].reason, /less even/);
+  assert.deepEqual(d[ps[2].id].changes, {});
+  // A neighbour the plan could not judge (the model skipped it) does not block a sound correction.
+  ps = [photo({face: 0.06, ai: {subjectExposure: 'under', proposed: {Exposure2012: 0.6}}}), photo({face: 0.06, ai: {skip: true, reason: 'Silhouette'}})];
+  d = decide({photos: ps, scenes: scene(ps), policy: resolvePolicy('Natural', 'Stronger'), enabled: ALL});
+  assert.equal(d[ps[0].id].status, 'proposed');
 });
